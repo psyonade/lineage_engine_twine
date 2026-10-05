@@ -1,3 +1,18 @@
 :: DebugModal
-<h2 style="color:var(--accent-gold-bright);">God-Mode Debug Inspector</h2>
-<<button "Back to Court" "Hub">><</button>>
+<div id="twee-debug-container"></div>
+<<script>>
+  $(document).one(':passageend', function() {
+    if (window.setup && window.setup.Lineage) {
+      const state = {
+        $world: State.variables.world,
+        $playerId: State.variables.playerId,
+        $actors: State.variables.actors,
+        $unions: State.variables.unions,
+        $chronicle: State.variables.chronicle
+      };
+      window.setup.Lineage.openDebugModal(state, function() {
+        Engine.play("Hub");
+      });
+    }
+  });
+<</script>>

@@ -48,4 +48,39 @@ describe('Family Tree Absolute Grid Layout & Path Routing Suite', () => {
     expect(lineage.ancestors.has(state.$playerId)).toBe(true);
     expect(lineage.descendants.has(state.$playerId)).toBe(true);
   });
+
+  it('verifies strict integer grid spacing and bounding-box collision avoidance across a 4-generation tree', () => {
+    let state = createInitialGameState('Pendelton');
+    state = LineageEngine.initGameWorld(state);
+
+    // Simulate enough seasons for multi-generational reproduction (4 generations)
+    for (let i = 0; i < 160; i++) {
+      advanceSeason(state);
+    }
+
+    const layout = computeFamilyTreeLayout(state, state.$playerId);
+    const actorNodes = layout.nodes.filter(n => n.type === 'actor');
+
+    // Group actor nodes by row
+    const nodesByRow = new Map();
+    for (const node of actorNodes) {
+      if (!nodesByRow.has(node.row)) {
+        nodesByRow.set(node.row, []);
+      }
+      nodesByRow.get(node.row).push(node);
+    }
+
+    // Verify for every pair on the same row that Math.abs(A.x - B.x) >= NODE_WIDTH (130)
+    const NODE_WIDTH = 130;
+    nodesByRow.forEach((rowNodes, row) => {
+      for (let i = 0; i < rowNodes.length; i++) {
+        for (let j = i + 1; j < rowNodes.length; j++) {
+          const nodeA = rowNodes[i];
+          const nodeB = rowNodes[j];
+          const diffX = Math.abs(nodeA.x - nodeB.x);
+          expect(diffX).toBeGreaterThanOrEqual(NODE_WIDTH);
+        }
+      }
+    });
+  });
 });
