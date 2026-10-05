@@ -1,0 +1,311 @@
+/* Dark Dynastic RPG UI Theme for The Lineage Engine */
+
+:root {
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --bg-card-hover: #334155;
+  --accent-gold: #f59e0b;
+  --accent-gold-bright: #fbbf24;
+  --accent-crimson: #991b1b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --border-subtle: #334155;
+  --border-gold: #d97706;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: 'Cinzel', 'Trajan Pro', 'Georgia', serif;
+  margin: 0;
+  padding: 0;
+}
+
+#init-screen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 1.5rem;
+  color: var(--accent-gold);
+}
+
+.lineage-app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.lineage-sidebar {
+  width: 300px;
+  background-color: #0b1120;
+  border-right: 2px solid var(--border-subtle);
+  padding: 1.5rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  flex-shrink: 0;
+}
+
+.lineage-main-viewport {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.sidebar-portrait-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-ruler-info {
+  text-align: center;
+}
+
+.sidebar-ruler-name {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: var(--accent-gold-bright);
+  margin-bottom: 0.25rem;
+}
+
+.sidebar-ruler-details {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.sidebar-world-box {
+  background-color: var(--bg-card);
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+.sidebar-season-title {
+  font-size: 1.1rem;
+  color: var(--accent-gold);
+  font-weight: bold;
+}
+
+.sidebar-nav-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.lineage-btn {
+  background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s ease;
+  text-align: center;
+  text-decoration: none;
+}
+
+.lineage-btn:hover {
+  background: linear-gradient(180deg, #475569 0%, #334155 100%);
+  border-color: var(--accent-gold);
+  color: var(--accent-gold-bright);
+}
+
+.lineage-btn-primary {
+  background: linear-gradient(180deg, #d97706 0%, #b45309 100%);
+  border-color: var(--accent-gold);
+}
+
+.lineage-btn-primary:hover {
+  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+}
+
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.character-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.character-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-gold);
+}
+
+.character-card-name {
+  font-weight: bold;
+  margin-top: 0.75rem;
+  color: var(--text-main);
+}
+
+.character-card-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.badge {
+  background-color: #0f172a;
+  border: 1px solid var(--border-subtle);
+  color: var(--accent-gold-bright);
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.family-tree-viewport {
+  width: 100%;
+  height: 650px;
+  background-color: #090d16;
+  border: 2px solid var(--border-subtle);
+  border-radius: 10px;
+  position: relative;
+  overflow: auto;
+  cursor: grab;
+}
+
+.family-tree-svg-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.tree-node-card {
+  position: absolute;
+  width: 130px;
+  height: 160px;
+  background-color: var(--bg-card);
+  border: 2px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, opacity 0.2s;
+  z-index: 2;
+}
+
+.tree-node-card:hover {
+  border-color: var(--accent-gold-bright);
+  z-index: 10;
+}
+
+.tree-node-card.highlight-ancestor {
+  border-color: #3b82f6;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.tree-node-card.highlight-descendant {
+  border-color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.tree-node-card.dimmed {
+  opacity: 0.35;
+}
+
+.tree-node-union-junction {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background-color: var(--accent-gold);
+  color: #000000;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  font-size: 1rem;
+  z-index: 3;
+}
+
+.tree-connector-path {
+  fill: none;
+  stroke: var(--border-subtle);
+  stroke-width: 2.5;
+  transition: stroke 0.2s, stroke-width 0.2s;
+}
+
+.tree-connector-path.highlight-path {
+  stroke: var(--accent-gold);
+  stroke-width: 4;
+}
+
+.tree-connector-path.dimmed-path {
+  opacity: 0.25;
+}
+
+.lineage-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.lineage-modal-content {
+  background-color: var(--bg-card);
+  border: 2px solid var(--border-gold);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+.lineage-modal-header {
+  font-size: 1.5rem;
+  color: var(--accent-gold-bright);
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.debug-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}

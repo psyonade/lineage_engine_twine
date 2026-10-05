@@ -1,0 +1,22 @@
+:: StoryInit
+<div id="story-init-viewport">
+  <<script>>
+    $(document).one(':passageend', function() {
+      if (window.setup && window.setup.Lineage) {
+        const slot = document.getElementById('story-init-viewport');
+        if (slot) {
+          window.setup.Lineage.renderFounderCreationView(slot, function(founderParams) {
+            let state = window.setup.Lineage.createInitialGameState(founderParams.house);
+            state = window.setup.Lineage.initGameWorld(state, founderParams);
+            State.variables.world = state.$world;
+            State.variables.playerId = state.$playerId;
+            State.variables.actors = state.$actors;
+            State.variables.unions = state.$unions;
+            State.variables.chronicle = state.$chronicle;
+            Engine.play('Hub');
+          });
+        }
+      }
+    });
+  <</script>>
+</div>

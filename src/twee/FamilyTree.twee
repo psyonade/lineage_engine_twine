@@ -1,0 +1,3 @@
+:: FamilyTree
+<h2 style="color:var(--accent-gold-bright);">Dynasty Lineage Tree</h2>
+<<button "Back to Court" "Hub">><</button>>
