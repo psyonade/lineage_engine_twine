@@ -1,0 +1,3 @@
+:: Interaction
+<h2 style="color:var(--accent-gold-bright);">Court Interaction</h2>
+<<button "Back to Court" "Hub">><</button>>

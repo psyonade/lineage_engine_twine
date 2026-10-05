@@ -1,0 +1,3 @@
+:: DebugModal
+<h2 style="color:var(--accent-gold-bright);">God-Mode Debug Inspector</h2>
+<<button "Back to Court" "Hub">><</button>>
