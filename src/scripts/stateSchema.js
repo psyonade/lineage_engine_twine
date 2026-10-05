@@ -48,6 +48,13 @@ export function createWorldState(dynastyName = 'Pendelton') {
     season: 'Spring',
     tickCount: 0,
     dynastyName: dynastyName,
+    ap: 4,
+    maxAp: 4,
+    gold: 50,
+    health: 100,
+    maxHealth: 100,
+    location: 'tavern',
+    actedThisSeason: {},
   };
 }
 
@@ -61,6 +68,9 @@ export function createActorDTO(params = {}) {
     deathYear: params.deathYear ?? null,
     isAlive: params.isAlive ?? true,
     house: params.house || 'Commoner',
+    location: params.location || 'tavern',
+    isPregnant: params.isPregnant ?? false,
+    pregnancy: params.pregnancy ?? null,
     parents: Array.isArray(params.parents) ? [...params.parents] : [],
     spouseId: params.spouseId ?? null,
     unions: Array.isArray(params.unions) ? [...params.unions] : [],
@@ -106,5 +116,6 @@ export function createInitialGameState(dynastyName = 'Pendelton') {
     $actors: {},
     $unions: {},
     $chronicle: [],
+    $quests: {},
   };
 }

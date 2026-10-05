@@ -130,11 +130,16 @@ ${passageElements}
 ${bundledJs}
   </script>
   <script>
-    window.addEventListener('DOMContentLoaded', () => {
+    function startApp() {
       if (window.setup && window.setup.Lineage && window.setup.Lineage.initStandaloneApp) {
         window.setup.Lineage.initStandaloneApp();
       }
-    });
+    }
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', startApp);
+    } else {
+      startApp();
+    }
   </script>
 </body>
 </html>`;
