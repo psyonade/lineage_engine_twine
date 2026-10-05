@@ -4,6 +4,9 @@ import {
   createUnionDTO,
   addChronicleEntry,
   generateActorId,
+  resetIdCounters,
+  clampStats,
+  clampRelationship,
 } from './stateSchema.js';
 import {
   generateRandomGenetics,
@@ -22,6 +25,7 @@ import {
   killActor,
   formUnion,
   produceOffspring,
+  generateUniqueName,
 } from './simulation.js';
 import { renderPortraitSVG } from './portraitSvg.js';
 import { computeFamilyTreeLayout, getLineageSets } from './familyTree.js';
@@ -65,27 +69,29 @@ const LineageEngine = {
     state.$playerId = founder.id;
     state.$world.dynastyName = founder.house;
 
-    const houses = ['Vane', 'Aethelgard', 'Draven'];
+    const houses = ['Vane', 'Aethelgard', 'Draven', 'Valerius'];
 
     houses.forEach((houseName) => {
+      const fatherName = generateUniqueName(state, 'male', houseName);
       const father = createActorDTO({
-        name: `Lord ${houseName}`,
+        name: fatherName,
         gender: 'male',
         birthYear: -45,
         house: houseName,
         genetics: generateRandomGenetics(),
         traits: ['Resilient'],
       });
+      state.$actors[father.id] = father;
+
+      const motherName = generateUniqueName(state, 'female', houseName);
       const mother = createActorDTO({
-        name: `Lady ${houseName}`,
+        name: motherName,
         gender: 'female',
         birthYear: -42,
         house: houseName,
         genetics: generateRandomGenetics(),
         traits: ['Charming'],
       });
-
-      state.$actors[father.id] = father;
       state.$actors[mother.id] = mother;
 
       const u = createUnionDTO({
@@ -98,8 +104,9 @@ const LineageEngine = {
       mother.unions.push(u.id);
       state.$unions[u.id] = u;
 
+      const sonName = generateUniqueName(state, 'male', houseName);
       const son = createActorDTO({
-        name: `Sir ${houseName} Jr`,
+        name: sonName,
         gender: 'male',
         birthYear: -22,
         house: houseName,
@@ -107,9 +114,11 @@ const LineageEngine = {
         genetics: generateOffspringGenetics(father, mother),
         traits: inheritTraits(father, mother),
       });
+      state.$actors[son.id] = son;
 
+      const daughterName = generateUniqueName(state, 'female', houseName);
       const daughter = createActorDTO({
-        name: `Lady ${houseName} Jr`,
+        name: daughterName,
         gender: 'female',
         birthYear: -20,
         house: houseName,
@@ -117,8 +126,6 @@ const LineageEngine = {
         genetics: generateOffspringGenetics(father, mother),
         traits: inheritTraits(father, mother),
       });
-
-      state.$actors[son.id] = son;
       state.$actors[daughter.id] = daughter;
 
       u.children.push(son.id, daughter.id);
@@ -144,7 +151,9 @@ const LineageEngine = {
 
     const age = player ? getActorAge(player, world.year) : 0;
     const stage = player ? getLifeStage(age) : '';
-    const portraitSvg = player ? renderPortraitSVG(player, 140) : '';
+    const portraitSvg = player ? renderPortraitSVG(player, 140, world.year) : '';
+    const stats = player?.stats || { martial: 50, diplomacy: 50, stewardship: 50, intrigue: 50, learning: 50 };
+    const eligibleHeirs = getEligibleHeirs(state, state.$playerId);
 
     containerEl.innerHTML = `
       <div class="lineage-sidebar">
@@ -154,6 +163,13 @@ const LineageEngine = {
         <div class="sidebar-ruler-info">
           <div class="sidebar-ruler-name">${player ? player.name : 'Unknown'}</div>
           <div class="sidebar-ruler-details">House ${player ? player.house : ''} | ${stage} (${age})</div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem; display:grid; grid-template-columns:1fr 1fr; gap:0.2rem 0.5rem;">
+            <span>MAR: ${stats.martial}</span>
+            <span>DIP: ${stats.diplomacy}</span>
+            <span>STE: ${stats.stewardship}</span>
+            <span>INT: ${stats.intrigue}</span>
+            <span style="grid-column: span 2;">LEA: ${stats.learning}</span>
+          </div>
           <div class="badge-list" style="margin-top:0.5rem;">
             ${(player?.traits || []).map(t => `<span class="badge">${t}</span>`).join('')}
           </div>
@@ -168,7 +184,11 @@ const LineageEngine = {
           <button class="lineage-btn" id="btn-nav-hub">Court & Hub</button>
           <button class="lineage-btn" id="btn-nav-tree">Family Tree</button>
           <button class="lineage-btn" id="btn-nav-chronicle">Chronicle</button>
-          <button class="lineage-btn" id="btn-nav-debug" style="margin-top:1rem; border-color:#e11d48; color:#fda4af;">Debug Inspector</button>
+          <button class="lineage-btn" id="btn-save-game" style="margin-top:0.5rem;">Save Game</button>
+          <button class="lineage-btn" id="btn-load-game">Load Game</button>
+          <button class="lineage-btn" id="btn-reset-save">Reset Save</button>
+          ${eligibleHeirs.length > 0 ? `<button class="lineage-btn" id="btn-abdicate" style="margin-top:0.5rem; border-color:var(--accent-gold); color:var(--accent-gold);">Abdicate Throne</button>` : ''}
+          <button class="lineage-btn" id="btn-nav-debug" style="margin-top:0.5rem; border-color:#e11d48; color:#fda4af;">Debug Inspector</button>
         </div>
       </div>
     `;
@@ -177,6 +197,10 @@ const LineageEngine = {
     containerEl.querySelector('#btn-nav-hub')?.addEventListener('click', () => onNavigate('hub'));
     containerEl.querySelector('#btn-nav-tree')?.addEventListener('click', () => onNavigate('family_tree'));
     containerEl.querySelector('#btn-nav-chronicle')?.addEventListener('click', () => onNavigate('chronicle'));
+    containerEl.querySelector('#btn-save-game')?.addEventListener('click', () => onNavigate('save_game'));
+    containerEl.querySelector('#btn-load-game')?.addEventListener('click', () => onNavigate('load_game'));
+    containerEl.querySelector('#btn-reset-save')?.addEventListener('click', () => onNavigate('reset_save'));
+    containerEl.querySelector('#btn-abdicate')?.addEventListener('click', () => onNavigate('abdicate'));
     containerEl.querySelector('#btn-nav-debug')?.addEventListener('click', () => onNavigate('debug_modal'));
   },
 
@@ -205,7 +229,7 @@ const LineageEngine = {
 
           <div style="display:flex; gap:2rem; margin-top:1.5rem; align-items:center;">
             <div>
-              ${renderPortraitSVG(previewActor, 180)}
+              ${renderPortraitSVG(previewActor, 180, 1)}
               <button class="lineage-btn" id="btn-randomize-genetics" style="margin-top:0.75rem; width:100%; font-size:0.8rem;">Randomize Appearance</button>
             </div>
 
@@ -327,6 +351,23 @@ const LineageEngine = {
           renderApp();
         } else if (action === 'debug_modal') {
           LineageEngine.openDebugModal(state, renderApp);
+        } else if (action === 'save_game') {
+          LineageEngine.saveGame(state);
+        } else if (action === 'load_game') {
+          const loadedState = LineageEngine.loadGame();
+          if (loadedState) {
+            state = loadedState;
+            renderApp();
+          }
+        } else if (action === 'reset_save') {
+          LineageEngine.resetSave();
+        } else if (action === 'abdicate') {
+          const heirs = getEligibleHeirs(state, state.$playerId);
+          if (heirs.length > 0) {
+            killActor(state, state.$playerId, 'voluntary abdication of the throne');
+            activeView = 'succession';
+            renderApp();
+          }
         } else {
           activeView = action;
           renderApp();
@@ -353,51 +394,163 @@ const LineageEngine = {
       } else if (activeView === 'chronicle') {
         LineageEngine.renderChronicleView(viewportSlot, state);
       } else if (activeView === 'succession') {
-        LineageEngine.renderSuccessionView(viewportSlot, state, () => {
-          activeView = 'hub';
+        LineageEngine.renderSuccessionView(viewportSlot, state, (action) => {
+          if (action === 'restart') {
+            state = null;
+            activeView = 'founder_creation';
+          } else {
+            activeView = 'hub';
+          }
           renderApp();
         });
       }
     };
 
+    if (typeof window !== 'undefined') {
+      window.SugarCube = window.SugarCube || {};
+      window.SugarCube.State = window.SugarCube.State || {};
+      Object.defineProperty(window.SugarCube.State, 'variables', {
+        get() { return state; },
+        set(v) { state = v; },
+        configurable: true,
+        enumerable: true
+      });
+      window.SugarCube.Engine = window.SugarCube.Engine || {
+        play(viewName) {
+          if (viewName === 'founder_creation' || viewName === 'Hub' || viewName === 'hub') activeView = 'hub';
+          else if (viewName === 'FamilyTree' || viewName === 'family_tree') activeView = 'family_tree';
+          else if (viewName === 'Interaction' || viewName === 'interaction') activeView = 'interaction';
+          else if (viewName === 'Succession' || viewName === 'succession') activeView = 'succession';
+          else if (viewName === 'DebugModal' || viewName === 'debug_modal') activeView = 'debug_modal';
+          else activeView = viewName;
+          renderApp();
+        }
+      };
+      window.State = window.SugarCube.State;
+    }
+
     renderApp();
+  },
+
+  saveGame: function (state) {
+    if (!state || typeof localStorage === 'undefined') return false;
+    try {
+      localStorage.setItem('lineage_save_game', JSON.stringify(state));
+      alert('Game Saved Successfully!');
+      return true;
+    } catch (e) {
+      console.error('Failed to save game:', e);
+      return false;
+    }
+  },
+
+  loadGame: function () {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const json = localStorage.getItem('lineage_save_game');
+      if (!json) {
+        alert('No saved game found.');
+        return null;
+      }
+      const loadedState = JSON.parse(json);
+
+      let maxActorNum = 0;
+      if (loadedState.$actors) {
+        Object.keys(loadedState.$actors).forEach(id => {
+          const num = parseInt(id.replace('char_', ''), 10);
+          if (!isNaN(num) && num > maxActorNum) maxActorNum = num;
+        });
+      }
+
+      let maxUnionNum = 0;
+      if (loadedState.$unions) {
+        Object.keys(loadedState.$unions).forEach(id => {
+          const num = parseInt(id.replace('union_', ''), 10);
+          if (!isNaN(num) && num > maxUnionNum) maxUnionNum = num;
+        });
+      }
+
+      resetIdCounters(maxActorNum, maxUnionNum);
+      alert('Game Loaded Successfully!');
+      return loadedState;
+    } catch (e) {
+      console.error('Failed to load game:', e);
+      alert('Failed to load saved game.');
+      return null;
+    }
+  },
+
+  resetSave: function () {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('lineage_save_game');
+      alert('Save Data Reset.');
+    }
   },
 
   renderHubView: function (containerEl, state, onSelectNPC) {
     const player = state.$actors[state.$playerId];
-    const actors = Object.values(state.$actors).filter(a => a.id !== state.$playerId && a.isAlive);
+    let currentFilter = 'all';
 
-    containerEl.innerHTML = `
-      <h2 style="color:var(--accent-gold-bright); margin-top:0;">Dynastic Court & Realms</h2>
-      <p style="color:var(--text-muted);">Interact with Court Members, Rivals, and Kin to build alliances or produce heirs.</p>
+    const render = () => {
+      let actors = Object.values(state.$actors).filter(a => a.id !== state.$playerId && a.isAlive);
 
-      <div class="character-grid">
-        ${actors.map(actor => {
-          const age = getActorAge(actor, state.$world.year);
-          const stage = getLifeStage(age);
-          const compat = player ? calculateCompatibility(player, actor) : 50;
+      if (currentFilter === 'kin') {
+        actors = actors.filter(a => a.house === player.house || (player.children && player.children.includes(a.id)) || (player.parents && player.parents.includes(a.id)));
+      } else if (currentFilter === 'court') {
+        actors = actors.filter(a => a.house !== player.house);
+      } else if (currentFilter === 'candidates') {
+        actors = actors.filter(a => {
+          const age = getActorAge(a, state.$world.year);
+          return age >= 16 && age <= 50 && !a.spouseId;
+        });
+      }
 
-          return `
-            <div class="character-card" data-actor-id="${actor.id}">
-              ${renderPortraitSVG(actor, 120)}
-              <div class="character-card-name">${actor.name}</div>
-              <div class="character-card-meta">House ${actor.house} | ${stage} (${age})</div>
-              <div class="character-card-meta" style="color:var(--accent-gold);">Compat: ${compat}%</div>
-              <div class="badge-list">
-                ${actor.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+      containerEl.innerHTML = `
+        <h2 style="color:var(--accent-gold-bright); margin-top:0;">Dynastic Court & Realms</h2>
+        <p style="color:var(--text-muted);">Interact with Court Members, Rivals, and Kin to build alliances or produce heirs.</p>
+
+        <div style="display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+          <button class="lineage-btn ${currentFilter === 'all' ? 'lineage-btn-primary' : ''}" id="tab-all">All</button>
+          <button class="lineage-btn ${currentFilter === 'kin' ? 'lineage-btn-primary' : ''}" id="tab-kin">Family & Kin</button>
+          <button class="lineage-btn ${currentFilter === 'court' ? 'lineage-btn-primary' : ''}" id="tab-court">Court & Houses</button>
+          <button class="lineage-btn ${currentFilter === 'candidates' ? 'lineage-btn-primary' : ''}" id="tab-candidates">Marriage Candidates</button>
+        </div>
+
+        <div class="character-grid">
+          ${actors.map(actor => {
+            const age = getActorAge(actor, state.$world.year);
+            const stage = getLifeStage(age);
+            const compat = player ? calculateCompatibility(player, actor) : 50;
+
+            return `
+              <div class="character-card" data-actor-id="${actor.id}">
+                ${renderPortraitSVG(actor, 120, state.$world.year)}
+                <div class="character-card-name">${actor.name}</div>
+                <div class="character-card-meta">House ${actor.house} | ${stage} (${age})</div>
+                <div class="character-card-meta" style="color:var(--accent-gold);">Compat: ${compat}%</div>
+                <div class="badge-list">
+                  ${actor.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+                </div>
               </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
+            `;
+          }).join('')}
+        </div>
+      `;
 
-    containerEl.querySelectorAll('.character-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const id = card.getAttribute('data-actor-id');
-        onSelectNPC(id);
+      containerEl.querySelector('#tab-all')?.addEventListener('click', () => { currentFilter = 'all'; render(); });
+      containerEl.querySelector('#tab-kin')?.addEventListener('click', () => { currentFilter = 'kin'; render(); });
+      containerEl.querySelector('#tab-court')?.addEventListener('click', () => { currentFilter = 'court'; render(); });
+      containerEl.querySelector('#tab-candidates')?.addEventListener('click', () => { currentFilter = 'candidates'; render(); });
+
+      containerEl.querySelectorAll('.character-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = card.getAttribute('data-actor-id');
+          onSelectNPC(id);
+        });
       });
-    });
+    };
+
+    render();
   },
 
   renderInteractionView: function (containerEl, state, targetActorId, onBack) {
@@ -410,84 +563,206 @@ const LineageEngine = {
       return;
     }
 
+    if (!player.relationships) player.relationships = {};
+    if (!player.relationships[target.id]) {
+      player.relationships[target.id] = clampRelationship({});
+    }
+    if (!target.relationships) target.relationships = {};
+    if (!target.relationships[player.id]) {
+      target.relationships[player.id] = clampRelationship({});
+    }
+
+    const relPtoT = player.relationships[target.id];
+    const relTtoP = target.relationships[player.id];
+
     const age = getActorAge(target, state.$world.year);
     const compat = calculateCompatibility(player, target);
+    const isChildOrYouth = age < 16;
 
-    containerEl.innerHTML = `
-      <button class="lineage-btn" id="btn-back" style="margin-bottom:1rem;">&larr; Back to Court</button>
-      <div style="display:flex; gap:2rem; background:var(--bg-card); padding:1.5rem; border-radius:10px; border:1px solid var(--border-subtle);">
-        <div>
-          ${renderPortraitSVG(target, 180)}
-        </div>
-        <div style="flex:1;">
-          <h2 style="color:var(--accent-gold-bright); margin-top:0;">${target.name}</h2>
-          <p style="color:var(--text-muted);">House ${target.house} | ${target.gender} | Age ${age}</p>
-          <p><strong>Compatibility Rating:</strong> <span style="color:var(--accent-gold);">${compat}%</span></p>
+    const render = () => {
+      const curRelP = clampRelationship(player.relationships[target.id]);
+      const curRelT = clampRelationship(target.relationships[player.id]);
+      const tStats = clampStats(target.stats);
 
-          <div style="margin:1rem 0;">
-            <strong>Traits:</strong>
-            <div class="badge-list" style="justify-content:flex-start; margin-top:0.4rem;">
-              ${target.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+      containerEl.innerHTML = `
+        <button class="lineage-btn" id="btn-back" style="margin-bottom:1rem;">&larr; Back to Court</button>
+        <div style="display:flex; gap:2rem; background:var(--bg-card); padding:1.5rem; border-radius:10px; border:1px solid var(--border-subtle);">
+          <div>
+            ${renderPortraitSVG(target, 180, state.$world.year)}
+            <div style="margin-top:1rem; background:#0f172a; padding:0.75rem; border-radius:6px; border:1px solid var(--border-subtle); font-size:0.85rem;">
+              <div style="font-weight:bold; color:var(--accent-gold); margin-bottom:0.4rem;">Attributes</div>
+              <div>Martial: ${tStats.martial}</div>
+              <div>Diplomacy: ${tStats.diplomacy}</div>
+              <div>Stewardship: ${tStats.stewardship}</div>
+              <div>Intrigue: ${tStats.intrigue}</div>
+              <div>Learning: ${tStats.learning}</div>
             </div>
           </div>
+          <div style="flex:1;">
+            <h2 style="color:var(--accent-gold-bright); margin-top:0;">${target.name}</h2>
+            <p style="color:var(--text-muted);">House ${target.house} | ${target.gender} | Age ${age}</p>
+            <p><strong>Compatibility Rating:</strong> <span style="color:var(--accent-gold);">${compat}%</span></p>
 
-          <div id="interaction-feedback" style="margin:1rem 0; color:var(--accent-gold); min-height:1.5rem;"></div>
+            <div style="background:#0f172a; padding:0.75rem; border-radius:6px; margin:1rem 0; border:1px solid var(--border-subtle);">
+              <div style="font-weight:bold; color:var(--accent-gold); margin-bottom:0.4rem;">Relationships with ${target.name}</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; font-size:0.85rem;">
+                <div><strong>Affinity:</strong> ${curRelP.affinity}</div>
+                <div><strong>Romance:</strong> ${curRelP.romance}</div>
+                <div><strong>Respect:</strong> ${curRelP.respect}</div>
+              </div>
+            </div>
 
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1.5rem;">
-            <button class="lineage-btn" id="act-converse">Converse</button>
-            <button class="lineage-btn" id="act-flirt">Flirt / Court</button>
-            ${(!player.spouseId && !target.spouseId) ? `<button class="lineage-btn lineage-btn-primary" id="act-propose">Propose Union</button>` : ''}
-            ${(player.spouseId === target.id) ? `<button class="lineage-btn lineage-btn-primary" id="act-offspring">Try for Offspring</button>` : ''}
+            <div style="margin:1rem 0;">
+              <strong>Traits:</strong>
+              <div class="badge-list" style="justify-content:flex-start; margin-top:0.4rem;">
+                ${target.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+              </div>
+            </div>
+
+            <div id="interaction-feedback" style="margin:1rem 0; color:var(--accent-gold); min-height:1.5rem;"></div>
+
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1.5rem;">
+              <button class="lineage-btn" id="act-converse">Converse</button>
+              <button class="lineage-btn" id="act-flirt">Flirt / Court</button>
+              <button class="lineage-btn" id="act-spar">Spar / Rival</button>
+              ${isChildOrYouth ? `<button class="lineage-btn" id="act-mentor">Mentor Child</button>` : ''}
+              ${(!player.spouseId && !target.spouseId && !isChildOrYouth) ? `<button class="lineage-btn lineage-btn-primary" id="act-propose">Propose Union</button>` : ''}
+              ${(player.spouseId === target.id) ? `<button class="lineage-btn lineage-btn-primary" id="act-offspring">Try for Offspring</button>` : ''}
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
 
-    const feedbackEl = containerEl.querySelector('#interaction-feedback');
+      const feedbackEl = containerEl.querySelector('#interaction-feedback');
+      containerEl.querySelector('#btn-back')?.addEventListener('click', onBack);
 
-    containerEl.querySelector('#btn-back')?.addEventListener('click', onBack);
+      containerEl.querySelector('#act-converse')?.addEventListener('click', () => {
+        const affInc = Math.floor(Math.random() * 8) + 8; // +8 to +15
+        const respInc = 5;
+        curRelP.affinity += affInc;
+        curRelP.respect += respInc;
+        curRelT.affinity += affInc;
+        curRelT.respect += respInc;
+        player.relationships[target.id] = clampRelationship(curRelP);
+        target.relationships[player.id] = clampRelationship(curRelT);
+        render();
+        const fb = containerEl.querySelector('#interaction-feedback');
+        if (fb) fb.innerText = `You conversed with ${target.name}. (Affinity +${affInc}, Respect +${respInc})`;
+      });
 
-    containerEl.querySelector('#act-converse')?.addEventListener('click', () => {
-      feedbackEl.innerText = `${player.name} conversed with ${target.name} regarding realm affairs.`;
-    });
-
-    containerEl.querySelector('#act-flirt')?.addEventListener('click', () => {
-      if (compat >= 50) {
-        feedbackEl.innerText = `${target.name} smiled warmly and reciprocated your courtship.`;
-      } else {
-        feedbackEl.innerText = `${target.name} seemed distant and unimpressed.`;
-      }
-    });
-
-    containerEl.querySelector('#act-propose')?.addEventListener('click', () => {
-      if (compat >= 45) {
-        formUnion(state, player.id, target.id);
-        feedbackEl.innerText = `Proposal accepted! ${target.name} is now your betrothed spouse.`;
-        setTimeout(() => LineageEngine.renderInteractionView(containerEl, state, targetActorId, onBack), 1200);
-      } else {
-        feedbackEl.innerText = `${target.name} rejected your marriage proposal.`;
-      }
-    });
-
-    containerEl.querySelector('#act-offspring')?.addEventListener('click', () => {
-      const uId = player.unions[0];
-      if (uId) {
-        const child = produceOffspring(state, uId);
-        if (child) {
-          feedbackEl.innerText = `A newborn child, ${child.name}, has been born to your house!`;
+      containerEl.querySelector('#act-flirt')?.addEventListener('click', () => {
+        if (compat >= 45) {
+          const romInc = Math.floor(Math.random() * 11) + 10; // +10 to +20
+          const affInc = 5;
+          curRelP.romance += romInc;
+          curRelP.affinity += affInc;
+          curRelT.romance += romInc;
+          curRelT.affinity += affInc;
+          player.relationships[target.id] = clampRelationship(curRelP);
+          target.relationships[player.id] = clampRelationship(curRelT);
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `${target.name} reciprocated your courtship warmly! (Romance +${romInc}, Affinity +${affInc})`;
         } else {
-          feedbackEl.innerText = `Conception attempt was unsuccessful this season.`;
+          curRelP.affinity -= 5;
+          curRelT.affinity -= 5;
+          player.relationships[target.id] = clampRelationship(curRelP);
+          target.relationships[player.id] = clampRelationship(curRelT);
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `${target.name} seemed distant and unimpressed by your flirtations. (Affinity -5)`;
         }
-      }
-    });
+      });
+
+      containerEl.querySelector('#act-spar')?.addEventListener('click', () => {
+        const pMar = player.stats?.martial ?? 50;
+        const tMar = target.stats?.martial ?? 50;
+        if (pMar >= tMar) {
+          curRelP.respect += 10;
+          curRelT.respect += 10;
+          curRelP.affinity -= 5;
+          curRelT.affinity -= 5;
+          if (!curRelP.flags.includes('rival')) curRelP.flags.push('rival');
+          if (!curRelT.flags.includes('rival')) curRelT.flags.push('rival');
+          player.relationships[target.id] = clampRelationship(curRelP);
+          target.relationships[player.id] = clampRelationship(curRelT);
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `You bested ${target.name} in a martial bout! (Respect +10, Affinity -5, Rivalry established)`;
+        } else {
+          curRelP.respect += 5;
+          curRelT.respect += 15;
+          curRelP.affinity -= 10;
+          curRelT.affinity -= 5;
+          player.relationships[target.id] = clampRelationship(curRelP);
+          target.relationships[player.id] = clampRelationship(curRelT);
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `${target.name} defeated you in the spar. (Target Respect +15, Affinity -10)`;
+        }
+      });
+
+      containerEl.querySelector('#act-mentor')?.addEventListener('click', () => {
+        const newStats = clampStats({
+          martial: (target.stats?.martial ?? 50) + 3,
+          diplomacy: (target.stats?.diplomacy ?? 50) + 3,
+          stewardship: (target.stats?.stewardship ?? 50) + 3,
+          intrigue: (target.stats?.intrigue ?? 50) + 3,
+          learning: (target.stats?.learning ?? 50) + 3,
+        });
+        target.stats = newStats;
+        curRelP.affinity += 10;
+        curRelT.affinity += 10;
+        player.relationships[target.id] = clampRelationship(curRelP);
+        target.relationships[player.id] = clampRelationship(curRelT);
+        render();
+        const fb = containerEl.querySelector('#interaction-feedback');
+        if (fb) fb.innerText = `You mentored young ${target.name}, honing their skills. (Stats +3, Affinity +10)`;
+      });
+
+      containerEl.querySelector('#act-propose')?.addEventListener('click', () => {
+        if (compat >= 45 && (curRelP.affinity >= 20 || curRelP.romance >= 20)) {
+          formUnion(state, player.id, target.id);
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `Proposal accepted! ${target.name} is now your betrothed spouse.`;
+        } else {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `${target.name} rejected your marriage proposal. (Requires compatibility >= 45% and Affinity or Romance >= 20)`;
+        }
+      });
+
+      containerEl.querySelector('#act-offspring')?.addEventListener('click', () => {
+        const uId = player.unions[0];
+        if (uId) {
+          const child = produceOffspring(state, uId);
+          if (child) {
+            render();
+            const fb = containerEl.querySelector('#interaction-feedback');
+            if (fb) fb.innerText = `A newborn child, ${child.name}, has been born to your house!`;
+          } else {
+            const fb = containerEl.querySelector('#interaction-feedback');
+            if (fb) fb.innerText = `Conception attempt was unsuccessful this season.`;
+          }
+        }
+      });
+    };
+
+    render();
   },
 
   renderFamilyTreeVR: function (containerEl, state, onSelectActor) {
     const layout = computeFamilyTreeLayout(state, state.$playerId);
     let selectedNodeId = state.$playerId;
+    let zoomLevel = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0, startY = 0;
 
     const renderTreeContent = () => {
       const lineage = getLineageSets(state, selectedNodeId);
+      const selectedActor = state.$actors[selectedNodeId];
 
       const nodesHtml = layout.nodes.map(node => {
         if (node.type === 'actor') {
@@ -508,7 +783,7 @@ const LineageEngine = {
             <div class="tree-node-card ${highlightClass} ${isDimmed ? 'dimmed' : ''}"
                  style="left:${node.x}px; top:${node.y}px;"
                  data-actor-id="${actor.id}">
-              ${renderPortraitSVG(actor, 65)}
+              ${renderPortraitSVG(actor, 65, state.$world.year)}
               <div style="font-weight:bold; font-size:0.75rem; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%;">${actor.name}</div>
               <div style="font-size:0.65rem; color:var(--text-muted);">${actor.isAlive ? `Age ${getActorAge(actor, state.$world.year)}` : 'Deceased'}</div>
             </div>
@@ -528,26 +803,132 @@ const LineageEngine = {
         return `<path class="tree-connector-path ${isHighlighted ? 'highlight-path' : 'dimmed-path'}" d="${conn.pathD}"/>`;
       }).join('');
 
+      let inspectorHtml = '';
+      if (selectedActor) {
+        const age = getActorAge(selectedActor, state.$world.year);
+        const stage = getLifeStage(age);
+        const gen = selectedActor.genetics || {};
+        const stats = clampStats(selectedActor.stats);
+        const canInteract = selectedActor.isAlive && selectedActor.id !== state.$playerId;
+
+        inspectorHtml = `
+          <div style="margin-top:1.5rem; background:var(--bg-card); padding:1.25rem; border-radius:10px; border:1px solid var(--border-gold); display:flex; gap:1.5rem; align-items:center;">
+            <div>
+              ${renderPortraitSVG(selectedActor, 120, state.$world.year)}
+            </div>
+            <div style="flex:1;">
+              <h3 style="color:var(--accent-gold-bright); margin:0 0 0.25rem 0;">${selectedActor.name}</h3>
+              <p style="color:var(--text-muted); margin:0 0 0.5rem 0; font-size:0.9rem;">House ${selectedActor.house} | ${stage} (${age}) | ${selectedActor.isAlive ? 'Living' : 'Deceased'}</p>
+
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:0.5rem; font-size:0.8rem; background:#0f172a; padding:0.6rem; border-radius:6px; border:1px solid var(--border-subtle); margin-bottom:0.75rem;">
+                <div><strong>Martial:</strong> ${stats.martial}</div>
+                <div><strong>Diplomacy:</strong> ${stats.diplomacy}</div>
+                <div><strong>Stewardship:</strong> ${stats.stewardship}</div>
+                <div><strong>Intrigue:</strong> ${stats.intrigue}</div>
+                <div><strong>Learning:</strong> ${stats.learning}</div>
+                <div><strong>Skin/Hair/Eye:</strong> ${gen.skinTone ?? 50}/${gen.hairColor ?? 50}/${gen.eyeColor ?? 50}</div>
+              </div>
+
+              <div class="badge-list" style="justify-content:flex-start;">
+                ${selectedActor.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+              </div>
+            </div>
+            ${canInteract ? `
+              <div>
+                <button class="lineage-btn lineage-btn-primary" id="btn-tree-interact">Interact / Visit</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+
       containerEl.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-          <h2 style="color:var(--accent-gold-bright); margin:0;">Dynasty Family Tree</h2>
-          <span style="color:var(--text-muted); font-size:0.85rem;">Click any character to highlight direct bloodline paths.</span>
+          <div>
+            <h2 style="color:var(--accent-gold-bright); margin:0;">Dynasty Family Tree</h2>
+            <span style="color:var(--text-muted); font-size:0.85rem;">Click any character to highlight direct bloodline paths.</span>
+          </div>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button class="lineage-btn" id="btn-zoom-in">+</button>
+            <button class="lineage-btn" id="btn-zoom-out">-</button>
+            <button class="lineage-btn" id="btn-zoom-reset">Reset / Center</button>
+          </div>
         </div>
 
-        <div class="family-tree-viewport" id="tree-viewport">
-          <svg class="family-tree-svg-canvas" width="${layout.bounds.width}" height="${layout.bounds.height}">
-            ${svgPathsHtml}
-          </svg>
-          ${nodesHtml}
+        <div class="family-tree-viewport" id="tree-viewport" style="overflow:hidden; cursor:grab; position:relative;">
+          <div id="tree-content-container" style="transform: translate(${panX}px, ${panY}px) scale(${zoomLevel}); transform-origin: 0 0; position:relative; width:${layout.bounds.width}px; height:${layout.bounds.height}px;">
+            <svg class="family-tree-svg-canvas" width="${layout.bounds.width}" height="${layout.bounds.height}">
+              ${svgPathsHtml}
+            </svg>
+            ${nodesHtml}
+          </div>
         </div>
+
+        ${inspectorHtml}
       `;
 
+      const viewportEl = containerEl.querySelector('#tree-viewport');
+
+      containerEl.querySelector('#btn-zoom-in')?.addEventListener('click', () => {
+        zoomLevel = Math.min(zoomLevel + 0.15, 2.0);
+        renderTreeContent();
+      });
+
+      containerEl.querySelector('#btn-zoom-out')?.addEventListener('click', () => {
+        zoomLevel = Math.max(zoomLevel - 0.15, 0.4);
+        renderTreeContent();
+      });
+
+      containerEl.querySelector('#btn-zoom-reset')?.addEventListener('click', () => {
+        zoomLevel = 1.0;
+        panX = 0;
+        panY = 0;
+        renderTreeContent();
+      });
+
+      if (viewportEl) {
+        viewportEl.addEventListener('mousedown', (e) => {
+          if (e.target.closest('.tree-node-card')) return;
+          isDragging = true;
+          startX = e.clientX - panX;
+          startY = e.clientY - panY;
+          viewportEl.style.cursor = 'grabbing';
+        });
+
+        viewportEl.addEventListener('mousemove', (e) => {
+          if (!isDragging) return;
+          panX = e.clientX - startX;
+          panY = e.clientY - startY;
+          const content = containerEl.querySelector('#tree-content-container');
+          if (content) {
+            content.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+          }
+        });
+
+        viewportEl.addEventListener('mouseup', () => {
+          isDragging = false;
+          if (viewportEl) viewportEl.style.cursor = 'grab';
+        });
+
+        viewportEl.addEventListener('mouseleave', () => {
+          isDragging = false;
+          if (viewportEl) viewportEl.style.cursor = 'grab';
+        });
+      }
+
       containerEl.querySelectorAll('.tree-node-card').forEach(card => {
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+          e.stopPropagation();
           const id = card.getAttribute('data-actor-id');
           selectedNodeId = id;
           renderTreeContent();
         });
+      });
+
+      containerEl.querySelector('#btn-tree-interact')?.addEventListener('click', () => {
+        if (selectedNodeId && onSelectActor) {
+          onSelectActor(selectedNodeId);
+        }
       });
     };
 
@@ -588,9 +969,7 @@ const LineageEngine = {
       `;
 
       containerEl.querySelector('#btn-restart')?.addEventListener('click', () => {
-        state = createInitialGameState('Pendelton');
-        LineageEngine.initGameWorld(state);
-        onContinuation();
+        onContinuation('restart');
       });
       return;
     }
@@ -609,7 +988,7 @@ const LineageEngine = {
           return `
             <div class="character-card" data-heir-id="${heirActor.id}" style="${isPrimary ? 'border-color:var(--accent-gold);' : ''}">
               ${isPrimary ? `<span class="badge" style="background:var(--accent-gold); color:#000; font-weight:bold;">PRIMARY HEIR</span>` : ''}
-              ${renderPortraitSVG(heirActor, 120)}
+              ${renderPortraitSVG(heirActor, 120, state.$world.year)}
               <div class="character-card-name">${heirActor.name}</div>
               <div class="character-card-meta">${candidate.relationshipLabel} | Age ${candidate.age}</div>
               <button class="lineage-btn lineage-btn-primary" style="margin-top:1rem; width:100%;">Ascend as Head</button>

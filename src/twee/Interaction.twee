@@ -1,3 +1,22 @@
 :: Interaction
-<h2 style="color:var(--accent-gold-bright);">Court Interaction</h2>
-<<button "Back to Court" "Hub">><</button>>
+<div id="twee-interaction-container"></div>
+<<script>>
+  $(document).one(':passageend', function() {
+    if (window.setup && window.setup.Lineage) {
+      const state = {
+        $world: State.variables.world,
+        $playerId: State.variables.playerId,
+        $actors: State.variables.actors,
+        $unions: State.variables.unions,
+        $chronicle: State.variables.chronicle
+      };
+      const container = document.getElementById('twee-interaction-container');
+      const targetId = State.variables.selectedInteractionActorId;
+      if (container) {
+        window.setup.Lineage.renderInteractionView(container, state, targetId, function() {
+          Engine.play("Hub");
+        });
+      }
+    }
+  });
+<</script>>

@@ -64,20 +64,7 @@ export function computeFamilyTreeLayout(state, rootId) {
       const partnerId = union.partners.find(pId => pId !== actorId);
       const partner = partnerId ? state.$actors[partnerId] : null;
 
-      const unionCol = currentCol + 0.8;
-      const unionNodeId = union.id;
-
-      nodes.set(unionNodeId, {
-        id: unionNodeId,
-        type: 'union',
-        unionId: union.id,
-        row: gen,
-        col: unionCol,
-        x: unionCol * COL_SPACING + PADDING_X,
-        y: gen * ROW_SPACING + PADDING_Y + 40,
-      });
-
-      let spouseCol = currentCol + 1.6;
+      let spouseCol = currentCol + 1;
       if (partner) {
         visitedActors.add(partner.id);
         nodes.set(partner.id, {
@@ -90,6 +77,19 @@ export function computeFamilyTreeLayout(state, rootId) {
           y: gen * ROW_SPACING + PADDING_Y,
         });
       }
+
+      const unionCol = (currentCol + spouseCol) / 2;
+      const unionNodeId = union.id;
+
+      nodes.set(unionNodeId, {
+        id: unionNodeId,
+        type: 'union',
+        unionId: union.id,
+        row: gen,
+        col: unionCol,
+        x: unionCol * COL_SPACING + PADDING_X,
+        y: gen * ROW_SPACING + PADDING_Y + 40,
+      });
 
       let childStartCol = currentCol;
 

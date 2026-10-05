@@ -1,3 +1,25 @@
 :: Succession
-<h2 style="color:var(--accent-gold-bright);">Succession & Royal Bloodlines</h2>
-<<button "Back to Court" "Hub">><</button>>
+<div id="twee-succession-container"></div>
+<<script>>
+  $(document).one(':passageend', function() {
+    if (window.setup && window.setup.Lineage) {
+      const state = {
+        $world: State.variables.world,
+        $playerId: State.variables.playerId,
+        $actors: State.variables.actors,
+        $unions: State.variables.unions,
+        $chronicle: State.variables.chronicle
+      };
+      const container = document.getElementById('twee-succession-container');
+      if (container) {
+        window.setup.Lineage.renderSuccessionView(container, state, function(action) {
+          if (action === 'restart') {
+            Engine.play('StoryInit');
+          } else {
+            Engine.play('Hub');
+          }
+        });
+      }
+    }
+  });
+<</script>>

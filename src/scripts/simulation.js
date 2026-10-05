@@ -198,8 +198,48 @@ export function formUnion(state, actor1Id, actor2Id) {
   return union;
 }
 
-const MALE_NAMES = ['Arthur', 'Cedric', 'Gareth', 'Julian', 'Tristan', 'Eldrin', 'Dorian', 'Valerius', 'Rowan', 'Kaelen', 'Magnus', 'Leander'];
-const FEMALE_NAMES = ['Aurelia', 'Genevieve', 'Lyra', 'Rosalind', 'Isolde', 'Elysia', 'Seraphina', 'Vivienne', 'Helena', 'Celeste', 'Morgana', 'Maeve'];
+export const MALE_NAMES = [
+  'Arthur', 'Cedric', 'Gareth', 'Julian', 'Tristan', 'Eldrin', 'Dorian', 'Valerius', 'Rowan', 'Kaelen',
+  'Magnus', 'Leander', 'Cassian', 'Hadrian', 'Lucian', 'Alistair', 'Benedict', 'Caelum', 'Dominic', 'Evander',
+  'Felix', 'Gideon', 'Ignatius', 'Jasper', 'Kieran', 'Lysander', 'Maximilian', 'Nathaniel', 'Oberon', 'Percival',
+  'Quentin', 'Roderick', 'Silas', 'Thaddeus', 'Uther', 'Victor', 'Winston', 'Xavier', 'Yael', 'Zephyr',
+  'Alden', 'Balthazar', 'Cyprian', 'Darian', 'Emrys', 'Finnian', 'Godfrey', 'Hector', 'Ivar', 'Jorund',
+  'Kendrick', 'Letholdus', 'Malachi', 'Nicanor', 'Orson', 'Phineas', 'Ragnar', 'Soren', 'Tiberius', 'Vance',
+  'Walden', 'Yvaine', 'Zacharias', 'Ambrose', 'Corin', 'Daven', 'Eamon', 'Fintan', 'Gawain', 'Holden'
+];
+
+export const FEMALE_NAMES = [
+  'Aurelia', 'Genevieve', 'Lyra', 'Rosalind', 'Isolde', 'Elysia', 'Seraphina', 'Vivienne', 'Helena', 'Celeste',
+  'Morgana', 'Maeve', 'Evangeline', 'Lyanna', 'Cassandra', 'Adelaide', 'Beatrix', 'Cressida', 'Diana', 'Elowen',
+  'Florence', 'Gwendolyn', 'Isadora', 'Jocelyn', 'Katarina', 'Lorelei', 'Mirabel', 'Nicolette', 'Ophelia', 'Penelope',
+  'Rhiannon', 'Sylvia', 'Talia', 'Ursula', 'Valeria', 'Willa', 'Xanthe', 'Yvaine', 'Zora', 'Amara',
+  'Briar', 'Clara', 'Dahlia', 'Elspeth', 'Fiona', 'Guinevere', 'Hestia', 'Ingrid', 'Jessamine', 'Kendra', 'Lillith',
+  'Mireille', 'Noelle', 'Odette', 'Priscilla', 'Rowena', 'Sybil', 'Theodora', 'Vesper', 'Winifred', 'Anya', 'Blythe'
+];
+
+export function generateUniqueName(state, gender = 'male', house = null, rng = Math.random) {
+  const pool = gender === 'male' ? MALE_NAMES : FEMALE_NAMES;
+  const livingActors = Object.values(state.$actors || {}).filter(a => a.isAlive);
+  const livingNames = new Set(livingActors.map(a => a.name));
+
+  const available = pool.filter(n => !livingNames.has(n));
+
+  if (available.length > 0) {
+    const idx = Math.floor(rng() * available.length);
+    return available[idx];
+  }
+
+  const baseName = pool[Math.floor(rng() * pool.length)];
+  let sameNameCount = 1;
+
+  Object.values(state.$actors || {}).forEach(a => {
+    if (a.name.startsWith(baseName)) sameNameCount++;
+  });
+
+  const numerals = ['II', 'III', 'IV', 'V', 'VI'];
+  const suffix = numerals[sameNameCount - 2] || `II${sameNameCount}`;
+  return `${baseName} ${suffix}`;
+}
 
 export function produceOffspring(state, unionId, rng = Math.random, customChildName = null, customGender = null) {
   const union = state.$unions[unionId];
@@ -212,8 +252,7 @@ export function produceOffspring(state, unionId, rng = Math.random, customChildN
   if (!parent1 || !parent2) return null;
 
   const gender = customGender || (rng() < 0.5 ? 'male' : 'female');
-  const namePool = gender === 'male' ? MALE_NAMES : FEMALE_NAMES;
-  const name = customChildName || namePool[Math.floor(rng() * namePool.length)];
+  const name = customChildName || generateUniqueName(state, gender, parent1.house, rng);
 
   const genetics = generateOffspringGenetics(parent1, parent2, rng);
   const traits = inheritTraits(parent1, parent2, rng);

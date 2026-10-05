@@ -1,3 +1,22 @@
 :: FamilyTree
-<h2 style="color:var(--accent-gold-bright);">Dynasty Lineage Tree</h2>
-<<button "Back to Court" "Hub">><</button>>
+<div id="twee-familytree-container"></div>
+<<script>>
+  $(document).one(':passageend', function() {
+    if (window.setup && window.setup.Lineage) {
+      const state = {
+        $world: State.variables.world,
+        $playerId: State.variables.playerId,
+        $actors: State.variables.actors,
+        $unions: State.variables.unions,
+        $chronicle: State.variables.chronicle
+      };
+      const container = document.getElementById('twee-familytree-container');
+      if (container) {
+        window.setup.Lineage.renderFamilyTreeVR(container, state, function(targetId) {
+          State.variables.selectedInteractionActorId = targetId;
+          Engine.play("Interaction");
+        });
+      }
+    }
+  });
+<</script>>

@@ -63,12 +63,13 @@ function getGarbColors(houseName = '') {
   };
 }
 
-export function renderPortraitSVG(actor, size = 160) {
+export function renderPortraitSVG(actor, size = 160, currentYear = null) {
   if (!actor) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg"><rect width="200" height="220" fill="#1e293b"/></svg>`;
   }
 
-  const age = getActorAge(actor, actor._currentYear || 1);
+  const year = currentYear ?? actor._currentYear ?? (typeof window !== 'undefined' ? window.SugarCube?.State?.variables?.$world?.year : null) ?? 1;
+  const age = getActorAge(actor, year);
   const lifeStage = getLifeStage(age);
   const genetics = actor.genetics || {};
   const traits = actor.traits || [];
