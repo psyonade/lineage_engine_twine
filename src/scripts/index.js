@@ -7,6 +7,7 @@ import {
   resetIdCounters,
   clampStats,
   clampRelationship,
+  clamp,
 } from './stateSchema.js';
 import {
   generateRandomGenetics,
@@ -15,6 +16,7 @@ import {
   calculateCompatibility,
   LEGENDARY_TRAITS,
   STANDARD_TRAITS,
+  CONGENITAL_TRAITS,
 } from './genetics.js';
 import {
   advanceSeason,
@@ -26,9 +28,64 @@ import {
   formUnion,
   produceOffspring,
   generateUniqueName,
+  initiatePregnancy,
 } from './simulation.js';
 import { renderPortraitSVG } from './portraitSvg.js';
 import { computeFamilyTreeLayout, getLineageSets } from './familyTree.js';
+import {
+  LOCATIONS,
+  INITIAL_QUESTS,
+  PROCEDURAL_ENCOUNTERS,
+  getDialogueGreeting,
+} from './worldContent.js';
+
+export const ORIGINS = {
+  wayfarer: {
+    id: 'wayfarer',
+    name: 'Wayfarer / Wanderer',
+    description: 'A free spirit who has walked many roads. Balanced stats and versatile mind.',
+    location: 'tavern',
+    gold: 50,
+    statBonus: { diplomacy: 5, learning: 5 },
+    extraTraitSlots: 0,
+  },
+  sellsword: {
+    id: 'sellsword',
+    name: 'Sellsword / Mercenary',
+    description: 'A hardened veteran of blade and battlefield. High Martial and Vitality.',
+    location: 'keep',
+    gold: 40,
+    statBonus: { martial: 15 },
+    extraTraitSlots: 0,
+  },
+  scholar: {
+    id: 'scholar',
+    name: "Hedge Scholar / Mystic",
+    description: 'A seeker of forgotten lore and hidden secrets. High Learning and Intrigue.',
+    location: 'shrine',
+    gold: 45,
+    statBonus: { learning: 10, intrigue: 10 },
+    extraTraitSlots: 0,
+  },
+  artisan: {
+    id: 'artisan',
+    name: 'Artisan / Merchant',
+    description: 'A shrewd trader skilled in crafts and coin. Starts with extra Gold and Stewardship.',
+    location: 'market',
+    gold: 100,
+    statBonus: { stewardship: 10, diplomacy: 5 },
+    extraTraitSlots: 0,
+  },
+  outcast: {
+    id: 'outcast',
+    name: 'Lowborn Outcast',
+    description: 'Scorned by high society, but resourceful and adaptable. Starts with less Gold but +1 extra Trait slot.',
+    location: 'woods',
+    gold: 20,
+    statBonus: { intrigue: 5 },
+    extraTraitSlots: 1,
+  },
+};
 
 const LineageEngine = {
   createInitialGameState,
@@ -41,6 +98,7 @@ const LineageEngine = {
   calculateCompatibility,
   LEGENDARY_TRAITS,
   STANDARD_TRAITS,
+  CONGENITAL_TRAITS,
   advanceSeason,
   getLifeStage,
   getActorAge,
@@ -49,35 +107,59 @@ const LineageEngine = {
   killActor,
   formUnion,
   produceOffspring,
+  initiatePregnancy,
   renderPortraitSVG,
   computeFamilyTreeLayout,
   getLineageSets,
 
   initGameWorld: function (state, founderParams = {}) {
-    const founderId = generateActorId(); // generate char_1 safely
+    const origin = ORIGINS[founderParams.originId] || ORIGINS.wayfarer;
+    const startingAge = founderParams.age ?? 25;
+    const founderId = generateActorId();
+
+    const founderStats = clampStats({
+      martial: 50 + (origin.statBonus.martial || 0),
+      diplomacy: 50 + (origin.statBonus.diplomacy || 0),
+      stewardship: 50 + (origin.statBonus.stewardship || 0),
+      intrigue: 50 + (origin.statBonus.intrigue || 0),
+      learning: 50 + (origin.statBonus.learning || 0),
+    });
+
     const founder = createActorDTO({
       id: founderId,
-      name: founderParams.name || 'Lord Alistair',
+      name: founderParams.name || 'Alistair',
       gender: founderParams.gender || 'male',
-      birthYear: -25,
+      birthYear: 1 - startingAge,
       house: founderParams.house || 'Pendelton',
       genetics: founderParams.genetics || generateRandomGenetics(),
       traits: founderParams.traits || ['Strong', 'Charming'],
+      stats: founderStats,
+      location: origin.location,
     });
 
     state.$actors[founder.id] = founder;
     state.$playerId = founder.id;
     state.$world.dynastyName = founder.house;
+    state.$world.gold = origin.gold;
+    state.$world.location = origin.location;
 
+    // Initialize quests
+    state.$quests = JSON.parse(JSON.stringify(INITIAL_QUESTS));
+
+    // Generate surrounding living houses
     const houses = ['Vane', 'Aethelgard', 'Draven', 'Valerius'];
+    const locationsList = ['tavern', 'market', 'woods', 'ruins', 'shrine', 'keep'];
 
-    houses.forEach((houseName) => {
+    houses.forEach((houseName, index) => {
+      const loc = locationsList[index % locationsList.length];
+
       const fatherName = generateUniqueName(state, 'male', houseName);
       const father = createActorDTO({
         name: fatherName,
         gender: 'male',
         birthYear: -45,
         house: houseName,
+        location: loc,
         genetics: generateRandomGenetics(),
         traits: ['Resilient'],
       });
@@ -89,6 +171,7 @@ const LineageEngine = {
         gender: 'female',
         birthYear: -42,
         house: houseName,
+        location: loc,
         genetics: generateRandomGenetics(),
         traits: ['Charming'],
       });
@@ -110,6 +193,7 @@ const LineageEngine = {
         gender: 'male',
         birthYear: -22,
         house: houseName,
+        location: loc,
         parents: [father.id, mother.id],
         genetics: generateOffspringGenetics(father, mother),
         traits: inheritTraits(father, mother),
@@ -122,6 +206,7 @@ const LineageEngine = {
         gender: 'female',
         birthYear: -20,
         house: houseName,
+        location: loc,
         parents: [father.id, mother.id],
         genetics: generateOffspringGenetics(father, mother),
         traits: inheritTraits(father, mother),
@@ -135,7 +220,7 @@ const LineageEngine = {
 
     addChronicleEntry(
       state,
-      `House ${founder.house} was established under the rule of ${founder.name}.`,
+      `House ${founder.house} was established under ${founder.name} (${origin.name}).`,
       'dynasty_start',
       [founder.id]
     );
@@ -154,6 +239,7 @@ const LineageEngine = {
     const portraitSvg = player ? renderPortraitSVG(player, 140, world.year) : '';
     const stats = player?.stats || { martial: 50, diplomacy: 50, stewardship: 50, intrigue: 50, learning: 50 };
     const eligibleHeirs = getEligibleHeirs(state, state.$playerId);
+    const currentLocation = LOCATIONS[world.location || 'tavern']?.name || 'Unknown Realm';
 
     containerEl.innerHTML = `
       <div class="lineage-sidebar">
@@ -163,6 +249,14 @@ const LineageEngine = {
         <div class="sidebar-ruler-info">
           <div class="sidebar-ruler-name">${player ? player.name : 'Unknown'}</div>
           <div class="sidebar-ruler-details">House ${player ? player.house : ''} | ${stage} (${age})</div>
+          <div style="font-size:0.75rem; color:var(--accent-gold); margin-top:0.3rem;">
+            Location: <strong>${currentLocation}</strong>
+          </div>
+          <div style="font-size:0.8rem; margin-top:0.4rem; display:grid; grid-template-columns:1fr 1fr; gap:0.2rem 0.5rem; background:#0f172a; padding:0.4rem; border-radius:6px; border:1px solid var(--border-subtle);">
+            <span style="color:#38bdf8;">AP: <strong>${world.ap ?? 4}/${world.maxAp ?? 4}</strong></span>
+            <span style="color:#ef4444;">HP: <strong>${world.health ?? 100}/${world.maxHealth ?? 100}</strong></span>
+            <span style="color:#f59e0b; grid-column: span 2;">Gold: <strong>${world.gold ?? 50} g</strong></span>
+          </div>
           <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem; display:grid; grid-template-columns:1fr 1fr; gap:0.2rem 0.5rem;">
             <span>MAR: ${stats.martial}</span>
             <span>DIP: ${stats.diplomacy}</span>
@@ -180,13 +274,13 @@ const LineageEngine = {
         </div>
 
         <div class="sidebar-nav-buttons">
-          <button class="lineage-btn lineage-btn-primary" id="btn-adv-season">Advance Season</button>
-          <button class="lineage-btn" id="btn-nav-hub">Court & Hub</button>
+          <button class="lineage-btn lineage-btn-primary" id="btn-adv-season">Advance Season / Rest</button>
+          <button class="lineage-btn" id="btn-nav-world">World Locations</button>
+          <button class="lineage-btn" id="btn-nav-hub">Court & Kin</button>
           <button class="lineage-btn" id="btn-nav-tree">Family Tree</button>
+          <button class="lineage-btn" id="btn-nav-quests">Quests & Journal</button>
           <button class="lineage-btn" id="btn-nav-chronicle">Chronicle</button>
-          <button class="lineage-btn" id="btn-save-game" style="margin-top:0.5rem;">Save Game</button>
-          <button class="lineage-btn" id="btn-load-game">Load Game</button>
-          <button class="lineage-btn" id="btn-reset-save">Reset Save</button>
+          <button class="lineage-btn" id="btn-save-load-modal" style="margin-top:0.5rem; border-color:var(--border-gold);">Save / Load Manager</button>
           ${eligibleHeirs.length > 0 ? `<button class="lineage-btn" id="btn-abdicate" style="margin-top:0.5rem; border-color:var(--accent-gold); color:var(--accent-gold);">Abdicate Throne</button>` : ''}
           <button class="lineage-btn" id="btn-nav-debug" style="margin-top:0.5rem; border-color:#e11d48; color:#fda4af;">Debug Inspector</button>
         </div>
@@ -194,12 +288,12 @@ const LineageEngine = {
     `;
 
     containerEl.querySelector('#btn-adv-season')?.addEventListener('click', () => onNavigate('advance_season'));
+    containerEl.querySelector('#btn-nav-world')?.addEventListener('click', () => onNavigate('world_location'));
     containerEl.querySelector('#btn-nav-hub')?.addEventListener('click', () => onNavigate('hub'));
     containerEl.querySelector('#btn-nav-tree')?.addEventListener('click', () => onNavigate('family_tree'));
+    containerEl.querySelector('#btn-nav-quests')?.addEventListener('click', () => onNavigate('quests'));
     containerEl.querySelector('#btn-nav-chronicle')?.addEventListener('click', () => onNavigate('chronicle'));
-    containerEl.querySelector('#btn-save-game')?.addEventListener('click', () => onNavigate('save_game'));
-    containerEl.querySelector('#btn-load-game')?.addEventListener('click', () => onNavigate('load_game'));
-    containerEl.querySelector('#btn-reset-save')?.addEventListener('click', () => onNavigate('reset_save'));
+    containerEl.querySelector('#btn-save-load-modal')?.addEventListener('click', () => onNavigate('save_load_modal'));
     containerEl.querySelector('#btn-abdicate')?.addEventListener('click', () => onNavigate('abdicate'));
     containerEl.querySelector('#btn-nav-debug')?.addEventListener('click', () => onNavigate('debug_modal'));
   },
@@ -208,64 +302,128 @@ const LineageEngine = {
     let name = 'Alistair';
     let house = 'Pendelton';
     let gender = 'male';
-    let traits = ['Strong', 'Charming'];
+    let startingAge = 25;
+    let originId = 'wayfarer';
+    let showLegendary = false;
+    let selectedTraits = ['Strong', 'Charming'];
     let genetics = generateRandomGenetics();
 
     const render = () => {
+      const origin = ORIGINS[originId] || ORIGINS.wayfarer;
+      const maxTraits = 3 + origin.extraTraitSlots;
+
       const previewActor = createActorDTO({
         id: 'preview_founder',
         name,
         gender,
         house,
-        birthYear: -25,
+        birthYear: 1 - startingAge,
         genetics,
-        traits,
+        traits: selectedTraits,
       });
 
-      containerEl.innerHTML = `
-        <div style="max-width:700px; margin:2rem auto; background:var(--bg-card); padding:2rem; border-radius:12px; border:2px solid var(--border-gold);">
-          <h2 style="color:var(--accent-gold-bright); text-align:center; margin-top:0;">Establish Your Dynasty</h2>
-          <p style="color:var(--text-muted); text-align:center;">Customize your Founder or quick-start with a randomized character.</p>
+      const traitPool = [
+        ...STANDARD_TRAITS,
+        ...CONGENITAL_TRAITS,
+        ...(showLegendary ? LEGENDARY_TRAITS : [])
+      ];
 
-          <div style="display:flex; gap:2rem; margin-top:1.5rem; align-items:center;">
-            <div>
+      containerEl.innerHTML = `
+        <div style="max-width:850px; margin:1.5rem auto; background:var(--bg-card); padding:2rem; border-radius:12px; border:2px solid var(--border-gold); box-sizing:border-box;">
+          <h2 style="color:var(--accent-gold-bright); text-align:center; margin-top:0;">Unrestricted Character Creator</h2>
+          <p style="color:var(--text-muted); text-align:center;">Forge your dynasty's founder, heritage, genetics, and background.</p>
+
+          <div style="display:flex; gap:2rem; margin-top:1.5rem; align-items:flex-start; flex-wrap:wrap;">
+            <div style="text-align:center; flex:0 0 200px;">
               ${renderPortraitSVG(previewActor, 180, 1)}
+              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.4rem;">Age ${startingAge} (${getLifeStage(startingAge)})</div>
               <button class="lineage-btn" id="btn-randomize-genetics" style="margin-top:0.75rem; width:100%; font-size:0.8rem;">Randomize Appearance</button>
             </div>
 
-            <div style="flex:1; display:flex; flex-direction:column; gap:1rem;">
-              <div>
-                <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Founder Name</label>
-                <input type="text" id="input-name" value="${name}" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; box-sizing:border-box;"/>
+            <div style="flex:1; min-width:300px; display:flex; flex-direction:column; gap:1rem;">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div>
+                  <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Founder Name</label>
+                  <input type="text" id="input-name" value="${name}" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; box-sizing:border-box;"/>
+                </div>
+                <div>
+                  <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Surname / Family Name (Optional)</label>
+                  <input type="text" id="input-house" value="${house}" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; box-sizing:border-box;"/>
+                </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div>
+                  <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Gender</label>
+                  <select id="select-gender" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px;">
+                    <option value="male" ${gender === 'male' ? 'selected' : ''}>Male</option>
+                    <option value="female" ${gender === 'female' ? 'selected' : ''}>Female</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Starting Age: <strong>${startingAge}</strong></label>
+                  <input type="range" id="slider-age" min="14" max="60" value="${startingAge}" style="width:100%; cursor:pointer;"/>
+                </div>
               </div>
 
               <div>
-                <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">House / Dynasty Name</label>
-                <input type="text" id="input-house" value="${house}" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; box-sizing:border-box;"/>
-              </div>
-
-              <div>
-                <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Gender</label>
-                <select id="select-gender" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px;">
-                  <option value="male" ${gender === 'male' ? 'selected' : ''}>Male</option>
-                  <option value="female" ${gender === 'female' ? 'selected' : ''}>Female</option>
-                </select>
-              </div>
-
-              <div>
-                <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Starting Traits</label>
-                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                  ${STANDARD_TRAITS.slice(0, 5).map(t => `
-                    <label style="font-size:0.8rem; background:#0f172a; padding:0.3rem 0.6rem; border-radius:4px; border:1px solid var(--border-subtle); cursor:pointer;">
-                      <input type="checkbox" class="chk-trait" value="${t}" ${traits.includes(t) ? 'checked' : ''}/> ${t}
-                    </label>
+                <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Origin / Background Selection</label>
+                <select id="select-origin" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px;">
+                  ${Object.values(ORIGINS).map(o => `
+                    <option value="${o.id}" ${originId === o.id ? 'selected' : ''}>${o.name} (${o.gold} Gold, starts at ${LOCATIONS[o.location].name})</option>
                   `).join('')}
+                </select>
+                <div style="font-size:0.8rem; color:var(--accent-gold); margin-top:0.25rem;">${origin.description}</div>
+              </div>
+
+              <details style="background:#0f172a; padding:0.75rem; border-radius:6px; border:1px solid var(--border-subtle);">
+                <summary style="cursor:pointer; font-weight:bold; color:var(--accent-gold); font-size:0.85rem;">Direct Genetic / Appearance Sliders</summary>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem; font-size:0.8rem;">
+                  <div>
+                    <label>Skin Tone: ${genetics.skinTone}</label>
+                    <input type="range" class="gen-slider" data-gene="skinTone" min="0" max="100" value="${genetics.skinTone}" style="width:100%;"/>
+                  </div>
+                  <div>
+                    <label>Hair Color: ${genetics.hairColor}</label>
+                    <input type="range" class="gen-slider" data-gene="hairColor" min="0" max="100" value="${genetics.hairColor}" style="width:100%;"/>
+                  </div>
+                  <div>
+                    <label>Eye Color: ${genetics.eyeColor}</label>
+                    <input type="range" class="gen-slider" data-gene="eyeColor" min="0" max="100" value="${genetics.eyeColor}" style="width:100%;"/>
+                  </div>
+                  <div>
+                    <label>Jaw Width: ${genetics.jawWidth}</label>
+                    <input type="range" class="gen-slider" data-gene="jawWidth" min="0" max="100" value="${genetics.jawWidth}" style="width:100%;"/>
+                  </div>
+                  <div>
+                    <label>Face Shape: ${genetics.faceShape}</label>
+                    <input type="range" class="gen-slider" data-gene="faceShape" min="0" max="100" value="${genetics.faceShape}" style="width:100%;"/>
+                  </div>
+                </div>
+              </details>
+
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <label style="font-size:0.85rem; color:var(--text-muted);">Starting Traits (Pick up to ${maxTraits})</label>
+                  <label style="font-size:0.75rem; color:var(--accent-gold); cursor:pointer;">
+                    <input type="checkbox" id="chk-toggle-legendary" ${showLegendary ? 'checked' : ''}/> Include Legendary Bloodlines
+                  </label>
+                </div>
+                <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.4rem; max-height:120px; overflow-y:auto; background:#0f172a; padding:0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
+                  ${traitPool.map(t => {
+                    const isChecked = selectedTraits.includes(t);
+                    return `
+                      <label style="font-size:0.75rem; background:${isChecked ? 'var(--border-gold)' : '#1e293b'}; padding:0.2rem 0.5rem; border-radius:4px; border:1px solid var(--border-subtle); cursor:pointer;">
+                        <input type="checkbox" class="chk-trait" value="${t}" ${isChecked ? 'checked' : ''}/> ${t}
+                      </label>
+                    `;
+                  }).join('')}
                 </div>
               </div>
             </div>
           </div>
 
-          <div style="display:flex; gap:1rem; margin-top:2rem; justify-content:center;">
+          <div style="display:flex; gap:1rem; margin-top:1.5rem; justify-content:center;">
             <button class="lineage-btn" id="btn-quick-start">Randomize / Quick Start</button>
             <button class="lineage-btn lineage-btn-primary" id="btn-confirm-founder">Found Dynasty</button>
           </div>
@@ -279,9 +437,40 @@ const LineageEngine = {
         render();
       });
 
+      containerEl.querySelector('#slider-age')?.addEventListener('input', (e) => {
+        startingAge = parseInt(e.target.value, 10);
+        render();
+      });
+
+      containerEl.querySelector('#select-origin')?.addEventListener('change', (e) => {
+        originId = e.target.value;
+        render();
+      });
+
+      containerEl.querySelector('#chk-toggle-legendary')?.addEventListener('change', (e) => {
+        showLegendary = e.target.checked;
+        render();
+      });
+
+      containerEl.querySelectorAll('.gen-slider').forEach(slider => {
+        slider.addEventListener('input', (e) => {
+          const gene = e.target.getAttribute('data-gene');
+          genetics[gene] = parseInt(e.target.value, 10);
+          render();
+        });
+      });
+
       containerEl.querySelectorAll('.chk-trait').forEach(chk => {
         chk.addEventListener('change', () => {
-          traits = Array.from(containerEl.querySelectorAll('.chk-trait:checked')).map(c => c.value);
+          const origin = ORIGINS[originId] || ORIGINS.wayfarer;
+          const maxTraits = 3 + origin.extraTraitSlots;
+
+          const checked = Array.from(containerEl.querySelectorAll('.chk-trait:checked')).map(c => c.value);
+          if (checked.length <= maxTraits) {
+            selectedTraits = checked;
+          } else {
+            chk.checked = false;
+          }
         });
       });
 
@@ -294,197 +483,306 @@ const LineageEngine = {
         genetics = generateRandomGenetics();
         name = gender === 'male' ? 'Alistair' : 'Aurelia';
         house = 'Pendelton';
-        traits = ['Strong', 'Charming'];
-        onComplete({ name, house, gender, traits, genetics });
+        startingAge = 25;
+        originId = 'wayfarer';
+        selectedTraits = ['Strong', 'Charming'];
+        onComplete({ name, house, gender, age: startingAge, originId, traits: selectedTraits, genetics });
       });
 
       containerEl.querySelector('#btn-confirm-founder')?.addEventListener('click', () => {
-        onComplete({ name, house, gender, traits, genetics });
+        const nameVal = containerEl.querySelector('#input-name')?.value || name;
+        const houseVal = containerEl.querySelector('#input-house')?.value || house;
+        const genderVal = containerEl.querySelector('#select-gender')?.value || gender;
+        onComplete({ name: nameVal, house: houseVal, gender: genderVal, age: startingAge, originId, traits: selectedTraits, genetics });
       });
     };
 
     render();
   },
 
-  initStandaloneApp: function () {
-    let state = null;
-    let activeView = 'founder_creation';
-    let selectedInteractionActorId = null;
+  renderWorldLocationView: function (containerEl, state, onNavigate) {
+    const world = state.$world;
+    const player = state.$actors[state.$playerId];
+    const locationKey = world.location || 'tavern';
+    const locInfo = LOCATIONS[locationKey] || LOCATIONS.tavern;
 
-    const renderApp = () => {
-      const body = document.body;
-      let appContainer = document.querySelector('.lineage-app-container');
+    let viewTab = 'present'; // 'present' or 'kin'
 
-      if (!appContainer) {
-        body.innerHTML = `
-          <div class="lineage-app-container">
-            <div id="sidebar-slot"></div>
-            <div class="lineage-main-viewport" id="viewport-slot"></div>
+    const render = () => {
+      let npcs = Object.values(state.$actors).filter(a => a.isAlive && a.id !== state.$playerId);
+
+      if (viewTab === 'present') {
+        npcs = npcs.filter(a => (a.location || 'tavern') === locationKey);
+      } else {
+        npcs = npcs.filter(a => a.house === player.house || (player.children && player.children.includes(a.id)) || (player.parents && player.parents.includes(a.id)));
+      }
+
+      containerEl.innerHTML = `
+        <div style="background:var(--bg-card); padding:1.5rem; border-radius:10px; border:1px solid var(--border-gold); margin-bottom:1.5rem;">
+          <h2 style="color:var(--accent-gold-bright); margin-top:0;">${locInfo.name}</h2>
+          <p style="color:var(--text-muted); font-size:0.95rem; line-height:1.5;">${locInfo.description}</p>
+
+          <div style="margin-top:1rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <button class="lineage-btn lineage-btn-primary" id="act-explore">Explore Surroundings (1 AP)</button>
+            ${(locInfo.activities || []).map(act => `
+              <button class="lineage-btn act-local-btn" data-act-id="${act.id}">${act.name} (1 AP)</button>
+            `).join('')}
           </div>
-          <div id="modal-slot"></div>
-        `;
-        appContainer = document.querySelector('.lineage-app-container');
-      }
 
-      const sidebarSlot = document.getElementById('sidebar-slot');
-      const viewportSlot = document.getElementById('viewport-slot');
+          <div id="location-feedback" style="margin-top:1rem; color:var(--accent-gold); font-weight:bold; min-height:1.2rem;"></div>
+        </div>
 
-      if (activeView === 'founder_creation') {
-        sidebarSlot.innerHTML = '';
-        LineageEngine.renderFounderCreationView(viewportSlot, (founderParams) => {
-          state = createInitialGameState(founderParams.house);
-          state = LineageEngine.initGameWorld(state, founderParams);
-          activeView = 'hub';
-          renderApp();
+        <div style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:var(--accent-gold); margin:0;">Travel to Another Location (1 AP)</h3>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; margin-bottom:2rem;">
+          ${Object.values(LOCATIONS).map(l => `
+            <button class="lineage-btn travel-btn ${l.id === locationKey ? 'lineage-btn-primary' : ''}" data-loc-id="${l.id}" ${l.id === locationKey ? 'disabled' : ''}>
+              ${l.name} ${l.id === locationKey ? '(Here)' : ''}
+            </button>
+          `).join('')}
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h3 style="color:var(--accent-gold); margin:0;">People in the Area</h3>
+          <div>
+            <button class="lineage-btn ${viewTab === 'present' ? 'lineage-btn-primary' : ''}" id="tab-loc-present">Present Here (${npcs.length})</button>
+            <button class="lineage-btn ${viewTab === 'kin' ? 'lineage-btn-primary' : ''}" id="tab-loc-kin">Known Kin Elsewhere</button>
+          </div>
+        </div>
+
+        <div class="character-grid">
+          ${npcs.length === 0 ? `<p style="color:var(--text-muted); grid-column:span 3;">No characters currently present at this location.</p>` : ''}
+          ${npcs.map(actor => {
+            const age = getActorAge(actor, state.$world.year);
+            const stage = getLifeStage(age);
+            const compat = player ? calculateCompatibility(player, actor) : 50;
+
+            return `
+              <div class="character-card" data-actor-id="${actor.id}">
+                ${renderPortraitSVG(actor, 120, state.$world.year)}
+                <div class="character-card-name">${actor.name}</div>
+                <div class="character-card-meta">House ${actor.house} | ${stage} (${age})</div>
+                <div class="character-card-meta" style="color:var(--accent-gold);">Loc: ${LOCATIONS[actor.location || 'tavern']?.name || 'Unknown'}</div>
+                <div class="badge-list">
+                  ${actor.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      containerEl.querySelector('#tab-loc-present')?.addEventListener('click', () => { viewTab = 'present'; render(); });
+      containerEl.querySelector('#tab-loc-kin')?.addEventListener('click', () => { viewTab = 'kin'; render(); });
+
+      containerEl.querySelectorAll('.character-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = card.getAttribute('data-actor-id');
+          onNavigate('interaction', id);
         });
-        return;
-      }
-
-      const player = state.$actors[state.$playerId];
-      if (player && !player.isAlive && activeView !== 'succession') {
-        activeView = 'succession';
-      }
-
-      LineageEngine.renderSidebar(sidebarSlot, state, (action) => {
-        if (action === 'advance_season') {
-          advanceSeason(state);
-          renderApp();
-        } else if (action === 'debug_modal') {
-          LineageEngine.openDebugModal(state, renderApp);
-        } else if (action === 'save_game') {
-          LineageEngine.saveGame(state);
-        } else if (action === 'load_game') {
-          const loadedState = LineageEngine.loadGame();
-          if (loadedState) {
-            state = loadedState;
-            renderApp();
-          }
-        } else if (action === 'reset_save') {
-          LineageEngine.resetSave();
-        } else if (action === 'abdicate') {
-          const heirs = getEligibleHeirs(state, state.$playerId);
-          if (heirs.length > 0) {
-            killActor(state, state.$playerId, 'voluntary abdication of the throne');
-            activeView = 'succession';
-            renderApp();
-          }
-        } else {
-          activeView = action;
-          renderApp();
-        }
       });
 
-      if (activeView === 'hub') {
-        LineageEngine.renderHubView(viewportSlot, state, (targetActorId) => {
-          selectedInteractionActorId = targetActorId;
-          activeView = 'interaction';
-          renderApp();
-        });
-      } else if (activeView === 'interaction') {
-        LineageEngine.renderInteractionView(viewportSlot, state, selectedInteractionActorId, () => {
-          activeView = 'hub';
-          renderApp();
-        });
-      } else if (activeView === 'family_tree') {
-        LineageEngine.renderFamilyTreeVR(viewportSlot, state, (targetActorId) => {
-          selectedInteractionActorId = targetActorId;
-          activeView = 'interaction';
-          renderApp();
-        });
-      } else if (activeView === 'chronicle') {
-        LineageEngine.renderChronicleView(viewportSlot, state);
-      } else if (activeView === 'succession') {
-        LineageEngine.renderSuccessionView(viewportSlot, state, (action) => {
-          if (action === 'restart') {
-            state = null;
-            activeView = 'founder_creation';
-          } else {
-            activeView = 'hub';
+      containerEl.querySelectorAll('.travel-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const newLoc = btn.getAttribute('data-loc-id');
+          if (world.ap <= 0) {
+            const fb = containerEl.querySelector('#location-feedback');
+            if (fb) fb.innerText = 'You are out of Action Points (AP)! Advance Season / Rest to recover.';
+            return;
           }
-          renderApp();
+          world.ap -= 1;
+          world.location = newLoc;
+          if (player) player.location = newLoc;
+          render();
         });
-      }
+      });
+
+      containerEl.querySelector('#act-explore')?.addEventListener('click', () => {
+        if (world.ap <= 0) {
+          const fb = containerEl.querySelector('#location-feedback');
+          if (fb) fb.innerText = 'You are out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        world.ap -= 1;
+        LineageEngine.triggerProceduralEncounterModal(state, () => {
+          onNavigate('world_location');
+        });
+      });
+
+      containerEl.querySelectorAll('.act-local-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const actId = btn.getAttribute('data-act-id');
+          const act = (locInfo.activities || []).find(a => a.id === actId);
+          if (!act) return;
+
+          if (world.ap <= 0) {
+            const fb = containerEl.querySelector('#location-feedback');
+            if (fb) fb.innerText = 'You are out of Action Points (AP)! Advance Season / Rest to recover.';
+            return;
+          }
+
+          if (act.goldCost && (world.gold || 0) < act.goldCost) {
+            const fb = containerEl.querySelector('#location-feedback');
+            if (fb) fb.innerText = `You need at least ${act.goldCost} Gold for this activity.`;
+            return;
+          }
+
+          world.ap -= 1;
+          if (act.goldCost) world.gold -= act.goldCost;
+          if (act.goldGain) world.gold = (world.gold || 0) + act.goldGain;
+          if (act.healthGain) world.health = clamp((world.health || 100) + act.healthGain, 0, world.maxHealth || 100);
+
+          if (act.statGain && player) {
+            player.stats[act.statGain] = clamp((player.stats[act.statGain] || 50) + 2, 0, 100);
+          }
+
+          const fb = containerEl.querySelector('#location-feedback');
+          if (fb) fb.innerText = `Activity completed: ${act.desc}`;
+          render();
+        });
+      });
     };
 
-    if (typeof window !== 'undefined') {
-      window.SugarCube = window.SugarCube || {};
-      window.SugarCube.State = window.SugarCube.State || {};
-      Object.defineProperty(window.SugarCube.State, 'variables', {
-        get() { return state; },
-        set(v) { state = v; },
-        configurable: true,
-        enumerable: true
-      });
-      window.SugarCube.Engine = window.SugarCube.Engine || {
-        play(viewName) {
-          if (viewName === 'founder_creation' || viewName === 'Hub' || viewName === 'hub') activeView = 'hub';
-          else if (viewName === 'FamilyTree' || viewName === 'family_tree') activeView = 'family_tree';
-          else if (viewName === 'Interaction' || viewName === 'interaction') activeView = 'interaction';
-          else if (viewName === 'Succession' || viewName === 'succession') activeView = 'succession';
-          else if (viewName === 'DebugModal' || viewName === 'debug_modal') activeView = 'debug_modal';
-          else activeView = viewName;
-          renderApp();
+    render();
+  },
+
+  triggerProceduralEncounterModal: function (state, onClose) {
+    const modalSlot = document.getElementById('modal-slot');
+    if (!modalSlot) return;
+
+    const enc = PROCEDURAL_ENCOUNTERS[Math.floor(Math.random() * PROCEDURAL_ENCOUNTERS.length)];
+    const player = state.$actors[state.$playerId];
+
+    modalSlot.innerHTML = `
+      <div class="lineage-modal-overlay">
+        <div class="lineage-modal-content" style="max-width:550px;">
+          <h3 style="color:var(--accent-gold-bright); margin-top:0;">${enc.title}</h3>
+          <p style="color:var(--text-muted); line-height:1.5;">${enc.text}</p>
+
+          <div style="display:flex; flex-direction:column; gap:0.75rem; margin-top:1.5rem;" id="enc-choices-box">
+            ${enc.choices.map((c, idx) => `
+              <button class="lineage-btn enc-choice-btn" data-choice-idx="${idx}" style="text-align:left; padding:0.75rem;">
+                ${c.text}
+              </button>
+            `).join('')}
+          </div>
+
+          <div id="enc-result-box" style="display:none; margin-top:1.5rem;">
+            <p id="enc-result-text" style="font-weight:bold; color:var(--accent-gold);"></p>
+            <button class="lineage-btn lineage-btn-primary" id="btn-close-enc" style="width:100%; margin-top:1rem;">Continue Journey</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modalSlot.querySelectorAll('.enc-choice-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-choice-idx'), 10);
+        const choice = enc.choices[idx];
+
+        let success = true;
+        if (choice.check && player) {
+          const statVal = player.stats[choice.check] || 50;
+          const roll = statVal + Math.floor(Math.random() * 30);
+          success = roll >= choice.dc;
         }
-      };
-      window.State = window.SugarCube.State;
-    }
 
-    renderApp();
-  },
+        if (choice.costGold) {
+          if ((state.$world.gold || 0) < choice.costGold) {
+            success = false;
+          } else {
+            state.$world.gold -= choice.costGold;
+          }
+        }
 
-  saveGame: function (state) {
-    if (!state || typeof localStorage === 'undefined') return false;
-    try {
-      localStorage.setItem('lineage_save_game', JSON.stringify(state));
-      alert('Game Saved Successfully!');
-      return true;
-    } catch (e) {
-      console.error('Failed to save game:', e);
-      return false;
-    }
-  },
+        const resBox = modalSlot.querySelector('#enc-result-box');
+        const choicesBox = modalSlot.querySelector('#enc-choices-box');
+        const resText = modalSlot.querySelector('#enc-result-text');
 
-  loadGame: function () {
-    if (typeof localStorage === 'undefined') return null;
-    try {
-      const json = localStorage.getItem('lineage_save_game');
-      if (!json) {
-        alert('No saved game found.');
-        return null;
-      }
-      const loadedState = JSON.parse(json);
+        if (choicesBox) choicesBox.style.display = 'none';
+        if (resBox) resBox.style.display = 'block';
 
-      let maxActorNum = 0;
-      if (loadedState.$actors) {
-        Object.keys(loadedState.$actors).forEach(id => {
-          const num = parseInt(id.replace('char_', ''), 10);
-          if (!isNaN(num) && num > maxActorNum) maxActorNum = num;
+        if (success) {
+          if (choice.successGold) state.$world.gold = (state.$world.gold || 0) + choice.successGold;
+          if (choice.successHp) state.$world.health = clamp((state.$world.health || 100) + choice.successHp, 0, state.$world.maxHealth || 100);
+          if (choice.successStat && player) {
+            Object.entries(choice.successStat).forEach(([st, val]) => {
+              player.stats[st] = clamp((player.stats[st] || 50) + val, 0, 100);
+            });
+          }
+          if (resText) resText.innerText = choice.successText || 'You succeeded!';
+        } else {
+          if (choice.failGold) state.$world.gold = Math.max(0, (state.$world.gold || 0) + choice.failGold);
+          if (choice.failHp) state.$world.health = clamp((state.$world.health || 100) + choice.failHp, 0, state.$world.maxHealth || 100);
+          if (resText) resText.innerText = choice.failText || 'You failed the attempt.';
+        }
+
+        modalSlot.querySelector('#btn-close-enc')?.addEventListener('click', () => {
+          modalSlot.innerHTML = '';
+          onClose();
         });
-      }
-
-      let maxUnionNum = 0;
-      if (loadedState.$unions) {
-        Object.keys(loadedState.$unions).forEach(id => {
-          const num = parseInt(id.replace('union_', ''), 10);
-          if (!isNaN(num) && num > maxUnionNum) maxUnionNum = num;
-        });
-      }
-
-      resetIdCounters(maxActorNum, maxUnionNum);
-      alert('Game Loaded Successfully!');
-      return loadedState;
-    } catch (e) {
-      console.error('Failed to load game:', e);
-      alert('Failed to load saved game.');
-      return null;
-    }
+      });
+    });
   },
 
-  resetSave: function () {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('lineage_save_game');
-      alert('Save Data Reset.');
-    }
+  renderQuestsView: function (containerEl, state) {
+    const quests = state.$quests || {};
+
+    containerEl.innerHTML = `
+      <h2 style="color:var(--accent-gold-bright); margin-top:0;">Quests & Journal</h2>
+      <p style="color:var(--text-muted);">Track ongoing story arcs, rumored relics, and generational goals.</p>
+
+      <div style="display:flex; flex-direction:column; gap:1rem; margin-top:1.5rem;">
+        ${Object.values(quests).map(q => {
+          const curStageText = q.stages[q.stage]?.text || 'Quest completed!';
+          const isAtLocation = (state.$world.location || 'tavern') === q.stages[q.stage]?.location;
+
+          return `
+            <div style="background:var(--bg-card); padding:1.25rem; border-radius:8px; border:1px solid var(--border-subtle); display:flex; gap:1rem; align-items:flex-start;">
+              <div style="flex:1;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <h3 style="color:var(--accent-gold); margin:0;">${q.title}</h3>
+                  <span class="badge" style="background:#0f172a;">Stage ${q.stage + 1} / ${q.maxStage}</span>
+                </div>
+                <p style="color:var(--text-muted); font-size:0.85rem; margin:0.4rem 0;">${q.description}</p>
+                <div style="background:#0f172a; padding:0.6rem; border-radius:6px; border:1px solid var(--border-subtle); font-size:0.85rem; color:#fff;">
+                  <strong>Current Objective:</strong> ${curStageText}
+                </div>
+              </div>
+              ${q.stage < q.maxStage ? `
+                <button class="lineage-btn quest-adv-btn ${isAtLocation ? 'lineage-btn-primary' : ''}" data-quest-id="${q.id}" ${!isAtLocation ? 'disabled' : ''}>
+                  ${isAtLocation ? 'Progress Quest (1 AP)' : `Travel to ${LOCATIONS[q.stages[q.stage]?.location]?.name}`}
+                </button>
+              ` : `<span class="badge" style="background:var(--accent-gold); color:#000;">COMPLETED</span>`}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    containerEl.querySelectorAll('.quest-adv-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const qId = btn.getAttribute('data-quest-id');
+        const q = state.$quests[qId];
+        if (!q) return;
+
+        if ((state.$world.ap || 0) <= 0) {
+          alert('You are out of Action Points (AP)! Advance Season / Rest to recover.');
+          return;
+        }
+
+        state.$world.ap -= 1;
+        q.stage += 1;
+        if (q.stage >= q.maxStage) {
+          state.$world.gold = (state.$world.gold || 0) + 50;
+          addChronicleEntry(state, `Completed quest: ${q.title}! (+50 Gold)`, 'quest');
+        }
+
+        LineageEngine.renderQuestsView(containerEl, state);
+      });
+    });
   },
 
   renderHubView: function (containerEl, state, onSelectNPC) {
@@ -506,7 +804,7 @@ const LineageEngine = {
       }
 
       containerEl.innerHTML = `
-        <h2 style="color:var(--accent-gold-bright); margin-top:0;">Dynastic Court & Realms</h2>
+        <h2 style="color:var(--accent-gold-bright); margin-top:0;">Dynastic Court & Kin</h2>
         <p style="color:var(--text-muted);">Interact with Court Members, Rivals, and Kin to build alliances or produce heirs.</p>
 
         <div style="display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap;">
@@ -572,21 +870,22 @@ const LineageEngine = {
       target.relationships[player.id] = clampRelationship({});
     }
 
-    const relPtoT = player.relationships[target.id];
-    const relTtoP = target.relationships[player.id];
-
     const age = getActorAge(target, state.$world.year);
     const compat = calculateCompatibility(player, target);
     const isChildOrYouth = age < 16;
+    const greeting = getDialogueGreeting(target, player);
 
     const render = () => {
       const curRelP = clampRelationship(player.relationships[target.id]);
-      const curRelT = clampRelationship(target.relationships[player.id]);
       const tStats = clampStats(target.stats);
+      const actedList = state.$world.actedThisSeason?.[target.id] || [];
+
+      const isSpouse = player.spouseId === target.id;
+      const isPregnantOrPartner = target.isPregnant || player.isPregnant;
 
       containerEl.innerHTML = `
-        <button class="lineage-btn" id="btn-back" style="margin-bottom:1rem;">&larr; Back to Court</button>
-        <div style="display:flex; gap:2rem; background:var(--bg-card); padding:1.5rem; border-radius:10px; border:1px solid var(--border-subtle);">
+        <button class="lineage-btn" id="btn-back" style="margin-bottom:1rem;">&larr; Back to Realm</button>
+        <div style="display:flex; gap:2rem; background:var(--bg-card); padding:1.5rem; border-radius:10px; border:1px solid var(--border-subtle); flex-wrap:wrap;">
           <div>
             ${renderPortraitSVG(target, 180, state.$world.year)}
             <div style="margin-top:1rem; background:#0f172a; padding:0.75rem; border-radius:6px; border:1px solid var(--border-subtle); font-size:0.85rem;">
@@ -598,13 +897,18 @@ const LineageEngine = {
               <div>Learning: ${tStats.learning}</div>
             </div>
           </div>
-          <div style="flex:1;">
+          <div style="flex:1; min-width:300px;">
             <h2 style="color:var(--accent-gold-bright); margin-top:0;">${target.name}</h2>
             <p style="color:var(--text-muted);">House ${target.house} | ${target.gender} | Age ${age}</p>
+
+            <div style="background:#0f172a; padding:1rem; border-radius:8px; border:1px solid var(--border-gold); margin-bottom:1rem; font-style:italic; color:#e2e8f0; font-size:0.95rem; line-height:1.4;">
+              ${greeting}
+            </div>
+
             <p><strong>Compatibility Rating:</strong> <span style="color:var(--accent-gold);">${compat}%</span></p>
 
             <div style="background:#0f172a; padding:0.75rem; border-radius:6px; margin:1rem 0; border:1px solid var(--border-subtle);">
-              <div style="font-weight:bold; color:var(--accent-gold); margin-bottom:0.4rem;">Relationships with ${target.name}</div>
+              <div style="font-weight:bold; color:var(--accent-gold); margin-bottom:0.4rem;">Relationships</div>
               <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; font-size:0.85rem;">
                 <div><strong>Affinity:</strong> ${curRelP.affinity}</div>
                 <div><strong>Romance:</strong> ${curRelP.romance}</div>
@@ -619,55 +923,66 @@ const LineageEngine = {
               </div>
             </div>
 
-            <div id="interaction-feedback" style="margin:1rem 0; color:var(--accent-gold); min-height:1.5rem;"></div>
+            <div id="interaction-feedback" style="margin:1rem 0; color:var(--accent-gold); min-height:1.5rem; font-weight:bold;"></div>
 
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1.5rem;">
-              <button class="lineage-btn" id="act-converse">Converse</button>
-              <button class="lineage-btn" id="act-flirt">Flirt / Court</button>
-              <button class="lineage-btn" id="act-spar">Spar / Rival</button>
-              ${isChildOrYouth ? `<button class="lineage-btn" id="act-mentor">Mentor Child</button>` : ''}
+              <button class="lineage-btn" id="act-converse" ${actedList.includes('converse') ? 'disabled' : ''}>Converse (1 AP)</button>
+              <button class="lineage-btn" id="act-flirt" ${actedList.includes('flirt') ? 'disabled' : ''}>Court / Romance (1 AP)</button>
+              <button class="lineage-btn" id="act-spar" ${actedList.includes('spar') ? 'disabled' : ''}>Spar (1 AP)</button>
+              ${isChildOrYouth ? `<button class="lineage-btn" id="act-mentor" ${actedList.includes('mentor') ? 'disabled' : ''}>Mentor Child (1 AP)</button>` : ''}
               ${(!player.spouseId && !target.spouseId && !isChildOrYouth) ? `<button class="lineage-btn lineage-btn-primary" id="act-propose">Propose Union</button>` : ''}
-              ${(player.spouseId === target.id) ? `<button class="lineage-btn lineage-btn-primary" id="act-offspring">Try for Offspring</button>` : ''}
+              ${isSpouse ? `
+                <button class="lineage-btn lineage-btn-primary" id="act-offspring" ${isPregnantOrPartner ? 'disabled' : ''}>
+                  ${isPregnantOrPartner ? `Pregnant (Due in ${Math.max(1, (target.pregnancy?.dueTick || player.pregnancy?.dueTick || state.$world.tickCount + 3) - state.$world.tickCount)} seasons)` : 'Try for Child (1 AP)'}
+                </button>
+              ` : ''}
             </div>
           </div>
         </div>
       `;
 
-      const feedbackEl = containerEl.querySelector('#interaction-feedback');
       containerEl.querySelector('#btn-back')?.addEventListener('click', onBack);
 
+      const trackAction = (actType) => {
+        state.$world.ap -= 1;
+        if (!state.$world.actedThisSeason[target.id]) {
+          state.$world.actedThisSeason[target.id] = [];
+        }
+        state.$world.actedThisSeason[target.id].push(actType);
+      };
+
       containerEl.querySelector('#act-converse')?.addEventListener('click', () => {
-        const affInc = Math.floor(Math.random() * 8) + 8; // +8 to +15
-        const respInc = 5;
-        curRelP.affinity += affInc;
-        curRelP.respect += respInc;
-        curRelT.affinity += affInc;
-        curRelT.respect += respInc;
+        if (state.$world.ap <= 0) {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = 'Out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        trackAction('converse');
+        curRelP.affinity += 10;
+        curRelP.respect += 5;
         player.relationships[target.id] = clampRelationship(curRelP);
-        target.relationships[player.id] = clampRelationship(curRelT);
         render();
         const fb = containerEl.querySelector('#interaction-feedback');
-        if (fb) fb.innerText = `You conversed with ${target.name}. (Affinity +${affInc}, Respect +${respInc})`;
+        if (fb) fb.innerText = `You had an engaging conversation with ${target.name}. (Affinity +10, Respect +5)`;
       });
 
       containerEl.querySelector('#act-flirt')?.addEventListener('click', () => {
+        if (state.$world.ap <= 0) {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = 'Out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        trackAction('flirt');
         if (compat >= 45) {
-          const romInc = Math.floor(Math.random() * 11) + 10; // +10 to +20
-          const affInc = 5;
-          curRelP.romance += romInc;
-          curRelP.affinity += affInc;
-          curRelT.romance += romInc;
-          curRelT.affinity += affInc;
+          curRelP.romance += 15;
+          curRelP.affinity += 5;
           player.relationships[target.id] = clampRelationship(curRelP);
-          target.relationships[player.id] = clampRelationship(curRelT);
           render();
           const fb = containerEl.querySelector('#interaction-feedback');
-          if (fb) fb.innerText = `${target.name} reciprocated your courtship warmly! (Romance +${romInc}, Affinity +${affInc})`;
+          if (fb) fb.innerText = `${target.name} reciprocated your courtship warmly! (Romance +15, Affinity +5)`;
         } else {
           curRelP.affinity -= 5;
-          curRelT.affinity -= 5;
           player.relationships[target.id] = clampRelationship(curRelP);
-          target.relationships[player.id] = clampRelationship(curRelT);
           render();
           const fb = containerEl.querySelector('#interaction-feedback');
           if (fb) fb.innerText = `${target.name} seemed distant and unimpressed by your flirtations. (Affinity -5)`;
@@ -675,49 +990,48 @@ const LineageEngine = {
       });
 
       containerEl.querySelector('#act-spar')?.addEventListener('click', () => {
+        if (state.$world.ap <= 0) {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = 'Out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        trackAction('spar');
         const pMar = player.stats?.martial ?? 50;
         const tMar = target.stats?.martial ?? 50;
         if (pMar >= tMar) {
           curRelP.respect += 10;
-          curRelT.respect += 10;
-          curRelP.affinity -= 5;
-          curRelT.affinity -= 5;
-          if (!curRelP.flags.includes('rival')) curRelP.flags.push('rival');
-          if (!curRelT.flags.includes('rival')) curRelT.flags.push('rival');
           player.relationships[target.id] = clampRelationship(curRelP);
-          target.relationships[player.id] = clampRelationship(curRelT);
           render();
           const fb = containerEl.querySelector('#interaction-feedback');
-          if (fb) fb.innerText = `You bested ${target.name} in a martial bout! (Respect +10, Affinity -5, Rivalry established)`;
+          if (fb) fb.innerText = `You bested ${target.name} in a martial bout! (Respect +10)`;
         } else {
           curRelP.respect += 5;
-          curRelT.respect += 15;
-          curRelP.affinity -= 10;
-          curRelT.affinity -= 5;
           player.relationships[target.id] = clampRelationship(curRelP);
-          target.relationships[player.id] = clampRelationship(curRelT);
           render();
           const fb = containerEl.querySelector('#interaction-feedback');
-          if (fb) fb.innerText = `${target.name} defeated you in the spar. (Target Respect +15, Affinity -10)`;
+          if (fb) fb.innerText = `${target.name} defeated you in the spar. (Respect +5)`;
         }
       });
 
       containerEl.querySelector('#act-mentor')?.addEventListener('click', () => {
-        const newStats = clampStats({
+        if (state.$world.ap <= 0) {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = 'Out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        trackAction('mentor');
+        target.stats = clampStats({
           martial: (target.stats?.martial ?? 50) + 3,
           diplomacy: (target.stats?.diplomacy ?? 50) + 3,
           stewardship: (target.stats?.stewardship ?? 50) + 3,
           intrigue: (target.stats?.intrigue ?? 50) + 3,
           learning: (target.stats?.learning ?? 50) + 3,
         });
-        target.stats = newStats;
         curRelP.affinity += 10;
-        curRelT.affinity += 10;
         player.relationships[target.id] = clampRelationship(curRelP);
-        target.relationships[player.id] = clampRelationship(curRelT);
         render();
         const fb = containerEl.querySelector('#interaction-feedback');
-        if (fb) fb.innerText = `You mentored young ${target.name}, honing their skills. (Stats +3, Affinity +10)`;
+        if (fb) fb.innerText = `You mentored young ${target.name}. (Target Stats +3, Affinity +10)`;
       });
 
       containerEl.querySelector('#act-propose')?.addEventListener('click', () => {
@@ -733,17 +1047,25 @@ const LineageEngine = {
       });
 
       containerEl.querySelector('#act-offspring')?.addEventListener('click', () => {
+        if (state.$world.ap <= 0) {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = 'Out of Action Points (AP)! Advance Season / Rest to recover.';
+          return;
+        }
+        state.$world.ap -= 1;
+
+        const motherId = player.gender === 'female' ? player.id : target.id;
+        const fatherId = player.gender === 'female' ? target.id : player.id;
         const uId = player.unions[0];
-        if (uId) {
-          const child = produceOffspring(state, uId);
-          if (child) {
-            render();
-            const fb = containerEl.querySelector('#interaction-feedback');
-            if (fb) fb.innerText = `A newborn child, ${child.name}, has been born to your house!`;
-          } else {
-            const fb = containerEl.querySelector('#interaction-feedback');
-            if (fb) fb.innerText = `Conception attempt was unsuccessful this season.`;
-          }
+
+        const ok = initiatePregnancy(state, motherId, fatherId, uId);
+        if (ok) {
+          render();
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `Conception successful! A child is expected in 3 seasons.`;
+        } else {
+          const fb = containerEl.querySelector('#interaction-feedback');
+          if (fb) fb.innerText = `Conception attempt failed or partner is already gestating.`;
         }
       });
     };
@@ -1007,6 +1329,201 @@ const LineageEngine = {
     });
   },
 
+  openSaveLoadModal: function (state, onUpdate) {
+    const modalSlot = document.getElementById('modal-slot');
+    if (!modalSlot) return;
+
+    const slotsKey = 'lineage_save_slots_v2';
+
+    const getSlots = () => {
+      try {
+        const json = localStorage.getItem(slotsKey);
+        return json ? JSON.parse(json) : {};
+      } catch (e) {
+        return {};
+      }
+    };
+
+    const saveSlot = (slotId) => {
+      const slots = getSlots();
+      const player = state.$actors[state.$playerId];
+      const world = state.$world;
+
+      slots[slotId] = {
+        state,
+        savedAt: new Date().toLocaleString(),
+        metadata: {
+          name: player ? player.name : 'Unknown',
+          house: player ? player.house : 'Unknown',
+          age: player ? getActorAge(player, world.year) : 0,
+          location: LOCATIONS[world.location || 'tavern']?.name || 'Unknown',
+          season: world.season,
+          year: world.year,
+          gold: world.gold,
+        }
+      };
+
+      try {
+        localStorage.setItem(slotsKey, JSON.stringify(slots));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    const loadSlot = (slotId) => {
+      const slots = getSlots();
+      const slot = slots[slotId];
+      if (!slot || !slot.state) return null;
+
+      const loadedState = slot.state;
+
+      let maxActorNum = 0;
+      if (loadedState.$actors) {
+        Object.keys(loadedState.$actors).forEach(id => {
+          const num = parseInt(id.replace('char_', ''), 10);
+          if (!isNaN(num) && num > maxActorNum) maxActorNum = num;
+        });
+      }
+
+      let maxUnionNum = 0;
+      if (loadedState.$unions) {
+        Object.keys(loadedState.$unions).forEach(id => {
+          const num = parseInt(id.replace('union_', ''), 10);
+          if (!isNaN(num) && num > maxUnionNum) maxUnionNum = num;
+        });
+      }
+
+      resetIdCounters(maxActorNum, maxUnionNum);
+      return loadedState;
+    };
+
+    const deleteSlot = (slotId) => {
+      const slots = getSlots();
+      delete slots[slotId];
+      try {
+        localStorage.setItem(slotsKey, JSON.stringify(slots));
+      } catch (e) {}
+    };
+
+    const renderModal = () => {
+      const slots = getSlots();
+      const slotKeys = ['slot_auto', 'slot_1', 'slot_2', 'slot_3', 'slot_4', 'slot_5'];
+
+      modalSlot.innerHTML = `
+        <div class="lineage-modal-overlay">
+          <div class="lineage-modal-content" style="max-width:650px;">
+            <div class="lineage-modal-header">
+              <span>Save & Load Manager</span>
+              <button class="lineage-btn" id="btn-close-saveload" style="padding:0.2rem 0.6rem;">&times;</button>
+            </div>
+
+            <div id="save-banner" style="margin:0.5rem 0; min-height:1.2rem; color:var(--accent-gold); font-weight:bold;"></div>
+
+            <div style="display:flex; flex-direction:column; gap:0.75rem; max-height:400px; overflow-y:auto; margin-top:1rem;">
+              ${slotKeys.map(sKey => {
+                const sl = slots[sKey];
+                const isAuto = sKey === 'slot_auto';
+                const label = isAuto ? 'Autosave Slot' : `Manual Slot ${sKey.replace('slot_', '')}`;
+
+                return `
+                  <div style="background:#0f172a; padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                      <div style="font-weight:bold; color:var(--accent-gold);">${label}</div>
+                      ${sl ? `
+                        <div style="font-size:0.8rem; color:#fff; margin-top:0.2rem;">
+                          ${sl.metadata.name} of House ${sl.metadata.house} (Age ${sl.metadata.age})
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">
+                          ${sl.metadata.season}, Year ${sl.metadata.year} | ${sl.metadata.location} | ${sl.metadata.gold} Gold
+                        </div>
+                        <div style="font-size:0.7rem; color:var(--text-muted);">Saved: ${sl.savedAt}</div>
+                      ` : `<div style="font-size:0.8rem; color:var(--text-muted);">Empty Slot</div>`}
+                    </div>
+
+                    <div style="display:flex; gap:0.4rem;">
+                      ${!isAuto ? `<button class="lineage-btn btn-save-slot" data-slot="${sKey}">Save</button>` : ''}
+                      ${sl ? `<button class="lineage-btn lineage-btn-primary btn-load-slot" data-slot="${sKey}">Load</button>` : ''}
+                      ${(sl && !isAuto) ? `<button class="lineage-btn btn-del-slot" data-slot="${sKey}" style="border-color:#ef4444; color:#ef4444;">Del</button>` : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+
+      modalSlot.querySelector('#btn-close-saveload')?.addEventListener('click', () => {
+        modalSlot.innerHTML = '';
+      });
+
+      modalSlot.querySelectorAll('.btn-save-slot').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const sKey = btn.getAttribute('data-slot');
+          if (saveSlot(sKey)) {
+            const banner = modalSlot.querySelector('#save-banner');
+            if (banner) banner.innerText = `Saved successfully to ${sKey.replace('slot_', 'Slot ')}!`;
+            renderModal();
+          }
+        });
+      });
+
+      modalSlot.querySelectorAll('.btn-load-slot').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const sKey = btn.getAttribute('data-slot');
+          const loaded = loadSlot(sKey);
+          if (loaded) {
+            modalSlot.innerHTML = '';
+            onUpdate(loaded);
+          }
+        });
+      });
+
+      modalSlot.querySelectorAll('.btn-del-slot').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const sKey = btn.getAttribute('data-slot');
+          deleteSlot(sKey);
+          renderModal();
+        });
+      });
+    };
+
+    renderModal();
+  },
+
+  openChildbirthModal: function (state, child, onClose) {
+    const modalSlot = document.getElementById('modal-slot');
+    if (!modalSlot) return;
+
+    modalSlot.innerHTML = `
+      <div class="lineage-modal-overlay">
+        <div class="lineage-modal-content" style="max-width:450px; text-align:center;">
+          <h2 style="color:var(--accent-gold-bright); margin-top:0;">A Child is Born!</h2>
+          ${renderPortraitSVG(child, 140, state.$world.year)}
+
+          <div style="margin:1rem 0;">
+            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">Name Your Newborn</label>
+            <input type="text" id="input-baby-name" value="${child.name}" style="width:100%; padding:0.5rem; background:#0f172a; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; box-sizing:border-box; text-align:center; font-size:1.1rem;"/>
+          </div>
+
+          <div class="badge-list" style="margin-bottom:1.5rem;">
+            ${child.traits.map(t => `<span class="badge">${t}</span>`).join('')}
+          </div>
+
+          <button class="lineage-btn lineage-btn-primary" id="btn-confirm-baby" style="width:100%;">Welcome to the House</button>
+        </div>
+      </div>
+    `;
+
+    modalSlot.querySelector('#btn-confirm-baby')?.addEventListener('click', () => {
+      const newName = modalSlot.querySelector('#input-baby-name')?.value;
+      if (newName) child.name = newName;
+      modalSlot.innerHTML = '';
+      onClose();
+    });
+  },
+
   openDebugModal: function (state, onUpdate) {
     const modalSlot = document.getElementById('modal-slot');
     if (!modalSlot) return;
@@ -1079,6 +1596,184 @@ const LineageEngine = {
       }
       closeModal();
     });
+  },
+
+  initStandaloneApp: function () {
+    let state = null;
+    let activeView = 'founder_creation';
+    let selectedInteractionActorId = null;
+
+    const renderApp = () => {
+      const body = document.body;
+      let appContainer = document.querySelector('.lineage-app-container');
+
+      if (!appContainer) {
+        body.innerHTML = `
+          <div class="lineage-app-container">
+            <div id="sidebar-slot"></div>
+            <div class="lineage-main-viewport" id="viewport-slot"></div>
+          </div>
+          <div id="modal-slot"></div>
+        `;
+        appContainer = document.querySelector('.lineage-app-container');
+      }
+
+      const sidebarSlot = document.getElementById('sidebar-slot');
+      const viewportSlot = document.getElementById('viewport-slot');
+
+      if (activeView === 'founder_creation') {
+        sidebarSlot.innerHTML = '';
+        LineageEngine.renderFounderCreationView(viewportSlot, (founderParams) => {
+          state = createInitialGameState(founderParams.house);
+          state = LineageEngine.initGameWorld(state, founderParams);
+          activeView = 'world_location';
+          renderApp();
+        });
+        return;
+      }
+
+      const player = state.$actors[state.$playerId];
+
+      // Check for zero health defeat or death
+      if (player && (player.health <= 0 || !player.isAlive) && activeView !== 'succession') {
+        if (player.isAlive) {
+          killActor(state, state.$playerId, 'fatal wounds sustained during an expedition');
+        }
+        activeView = 'succession';
+      }
+
+      LineageEngine.renderSidebar(sidebarSlot, state, (action, extraData) => {
+        if (action === 'advance_season') {
+          const res = advanceSeason(state);
+
+          // Auto-save to slot_auto
+          try {
+            const slotsKey = 'lineage_save_slots_v2';
+            const json = localStorage.getItem(slotsKey);
+            const slots = json ? JSON.parse(json) : {};
+            const curPlayer = state.$actors[state.$playerId];
+            slots['slot_auto'] = {
+              state,
+              savedAt: new Date().toLocaleString(),
+              metadata: {
+                name: curPlayer ? curPlayer.name : 'Unknown',
+                house: curPlayer ? curPlayer.house : 'Unknown',
+                age: curPlayer ? getActorAge(curPlayer, state.$world.year) : 0,
+                location: LOCATIONS[state.$world.location || 'tavern']?.name || 'Unknown',
+                season: state.$world.season,
+                year: state.$world.year,
+                gold: state.$world.gold,
+              }
+            };
+            localStorage.setItem(slotsKey, JSON.stringify(slots));
+          } catch (e) {}
+
+          // Check childbirth modal for player
+          if (res?.childbirthEvents) {
+            const playerBirth = res.childbirthEvents.find(e => e.isPlayerChild);
+            if (playerBirth) {
+              LineageEngine.openChildbirthModal(state, playerBirth.child, () => {
+                renderApp();
+              });
+              return;
+            }
+          }
+
+          renderApp();
+        } else if (action === 'debug_modal') {
+          LineageEngine.openDebugModal(state, renderApp);
+        } else if (action === 'save_load_modal') {
+          LineageEngine.openSaveLoadModal(state, (newState) => {
+            if (newState) {
+              state = newState;
+              renderApp();
+            }
+          });
+        } else if (action === 'abdicate') {
+          const heirs = getEligibleHeirs(state, state.$playerId);
+          if (heirs.length > 0) {
+            killActor(state, state.$playerId, 'voluntary abdication of the throne');
+            activeView = 'succession';
+            renderApp();
+          }
+        } else if (action === 'interaction') {
+          selectedInteractionActorId = extraData;
+          activeView = 'interaction';
+          renderApp();
+        } else {
+          activeView = action;
+          renderApp();
+        }
+      });
+
+      if (activeView === 'world_location') {
+        LineageEngine.renderWorldLocationView(viewportSlot, state, (view, extraData) => {
+          if (view === 'interaction') {
+            selectedInteractionActorId = extraData;
+            activeView = 'interaction';
+          } else {
+            activeView = view;
+          }
+          renderApp();
+        });
+      } else if (activeView === 'hub') {
+        LineageEngine.renderHubView(viewportSlot, state, (targetActorId) => {
+          selectedInteractionActorId = targetActorId;
+          activeView = 'interaction';
+          renderApp();
+        });
+      } else if (activeView === 'interaction') {
+        LineageEngine.renderInteractionView(viewportSlot, state, selectedInteractionActorId, () => {
+          activeView = 'world_location';
+          renderApp();
+        });
+      } else if (activeView === 'family_tree') {
+        LineageEngine.renderFamilyTreeVR(viewportSlot, state, (targetActorId) => {
+          selectedInteractionActorId = targetActorId;
+          activeView = 'interaction';
+          renderApp();
+        });
+      } else if (activeView === 'quests') {
+        LineageEngine.renderQuestsView(viewportSlot, state);
+      } else if (activeView === 'chronicle') {
+        LineageEngine.renderChronicleView(viewportSlot, state);
+      } else if (activeView === 'succession') {
+        LineageEngine.renderSuccessionView(viewportSlot, state, (action) => {
+          if (action === 'restart') {
+            state = null;
+            activeView = 'founder_creation';
+          } else {
+            activeView = 'world_location';
+          }
+          renderApp();
+        });
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.SugarCube = window.SugarCube || {};
+      window.SugarCube.State = window.SugarCube.State || {};
+      Object.defineProperty(window.SugarCube.State, 'variables', {
+        get() { return state; },
+        set(v) { state = v; },
+        configurable: true,
+        enumerable: true
+      });
+      window.SugarCube.Engine = window.SugarCube.Engine || {
+        play(viewName) {
+          if (viewName === 'founder_creation' || viewName === 'Hub' || viewName === 'hub') activeView = 'world_location';
+          else if (viewName === 'FamilyTree' || viewName === 'family_tree') activeView = 'family_tree';
+          else if (viewName === 'Interaction' || viewName === 'interaction') activeView = 'interaction';
+          else if (viewName === 'Succession' || viewName === 'succession') activeView = 'succession';
+          else if (viewName === 'DebugModal' || viewName === 'debug_modal') activeView = 'debug_modal';
+          else activeView = viewName;
+          renderApp();
+        }
+      };
+      window.State = window.SugarCube.State;
+    }
+
+    renderApp();
   }
 };
 

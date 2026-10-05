@@ -26,11 +26,34 @@ export function getActorAge(actor, currentYear) {
   return currentYear - actor.birthYear;
 }
 
+export function initiatePregnancy(state, motherId, fatherId, unionId) {
+  const mother = state.$actors[motherId];
+  if (!mother || mother.isPregnant) return false;
+
+  mother.isPregnant = true;
+  mother.pregnancy = {
+    motherId,
+    fatherId,
+    unionId,
+    dueTick: (state.$world.tickCount || 0) + 3,
+  };
+  return true;
+}
+
 export function advanceSeason(state, rng = Math.random) {
   if (!state.$world) return;
 
   const world = state.$world;
   world.tickCount = (world.tickCount || 0) + 1;
+
+  // Reset AP and seasonal interaction cooldowns
+  world.ap = world.maxAp || 4;
+  world.actedThisSeason = {};
+
+  // Recover player HP
+  if (typeof world.health === 'number') {
+    world.health = clamp(world.health + 10, 0, world.maxHealth || 100);
+  }
 
   const currentSeasonIndex = SEASONS.indexOf(world.season);
   const nextSeasonIndex = (currentSeasonIndex + 1) % 4;
@@ -46,13 +69,67 @@ export function advanceSeason(state, rng = Math.random) {
     processYearlyAgingAndMortality(state, rng);
   }
 
+  const childbirthEvents = processPregnancies(state, rng);
   processAutonomousUnionsAndOffspring(state, rng);
+  processNpcLocationMovement(state, rng);
 
   return {
     yearPassed,
     year: world.year,
     season: world.season,
+    childbirthEvents,
   };
+}
+
+function processPregnancies(state, rng) {
+  const childbirthEvents = [];
+  const actors = Object.values(state.$actors || {});
+
+  for (const actor of actors) {
+    if (!actor.isAlive || !actor.isPregnant || !actor.pregnancy) continue;
+
+    if (state.$world.tickCount >= actor.pregnancy.dueTick) {
+      const { unionId, motherId, fatherId } = actor.pregnancy;
+      const child = produceOffspring(state, unionId, rng);
+
+      actor.isPregnant = false;
+      actor.pregnancy = null;
+
+      if (child) {
+        const isPlayerChild = motherId === state.$playerId || fatherId === state.$playerId;
+        childbirthEvents.push({
+          child,
+          motherId,
+          fatherId,
+          isPlayerChild,
+        });
+      }
+    }
+  }
+
+  return childbirthEvents;
+}
+
+function processNpcLocationMovement(state, rng) {
+  const locations = ['tavern', 'market', 'woods', 'ruins', 'shrine', 'keep'];
+  const player = state.$actors[state.$playerId];
+  const playerSpouseId = player?.spouseId;
+
+  for (const actor of Object.values(state.$actors || {})) {
+    if (!actor.isAlive || actor.id === state.$playerId) continue;
+
+    // Spouses and young children stay near player's location
+    const age = getActorAge(actor, state.$world.year);
+    if (actor.id === playerSpouseId || age < 12) {
+      if (player?.location) actor.location = state.$world.location || 'tavern';
+      continue;
+    }
+
+    if (rng() < 0.25) {
+      const newLoc = locations[Math.floor(rng() * locations.length)];
+      actor.location = newLoc;
+    }
+  }
 }
 
 function processYearlyAgingAndMortality(state, rng) {
@@ -162,8 +239,9 @@ function processAutonomousUnionsAndOffspring(state, rng) {
 
     if (age1 < 16 || age2 < 16) continue;
 
-    if (rng() < 0.25) {
-      produceOffspring(state, union.id, rng);
+    if (rng() < 0.25 && femalePartner && !femalePartner.isPregnant) {
+      const malePartner = partner1.gender === 'male' ? partner1 : partner2;
+      initiatePregnancy(state, femalePartner.id, malePartner.id, union.id);
     }
   }
 }
