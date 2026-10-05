@@ -1,0 +1,11 @@
+:: Sidebar [story-caption]
+<div class="lineage-sidebar">
+  <div class="sidebar-world-box">
+    <div class="sidebar-season-title">$world.season, Year $world.year</div>
+  </div>
+  <div class="sidebar-nav-buttons">
+    <<button "Hub" "Hub">><</button>>
+    <<button "Family Tree" "FamilyTree">><</button>>
+    <<button "Succession" "Succession">><</button>>
+  </div>
+</div>

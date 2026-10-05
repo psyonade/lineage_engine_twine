@@ -1,0 +1,19 @@
+:: Hub
+<h2 style="color:var(--accent-gold-bright);">Dynastic Realm & Court</h2>
+<p>Welcome to the seat of power for House $world.dynastyName.</p>
+
+<<button "Advance Season">>
+  <<script>>
+    if (window.setup && window.setup.Lineage) {
+      const state = {
+        $world: State.variables.world,
+        $playerId: State.variables.playerId,
+        $actors: State.variables.actors,
+        $unions: State.variables.unions,
+        $chronicle: State.variables.chronicle
+      };
+      window.setup.Lineage.advanceSeason(state);
+      Engine.play("Hub");
+    }
+  <</script>>
+<</button>>

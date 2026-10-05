@@ -1,0 +1,14 @@
+{
+  "name": "lineage_engine_twine",
+  "version": "1.0.0",
+  "description": "The Lineage Engine (Twine / SugarCube 2 Edition)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "build": "node scripts/build.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "vitest": "^3.0.0"
+  }
+}
