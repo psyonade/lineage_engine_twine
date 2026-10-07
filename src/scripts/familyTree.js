@@ -29,6 +29,17 @@ export function computeFamilyTreeLayout(state, rootId) {
   const visitedActors = new Set();
   const visitedUnions = new Set();
 
+  function nextFreeActorCol(row, preferredCol) {
+    const occupied = new Set(
+      Array.from(nodes.values())
+        .filter(node => node.type === 'actor' && node.row === row)
+        .map(node => node.col),
+    );
+    let col = preferredCol;
+    while (occupied.has(col)) col += 1;
+    return col;
+  }
+
   function layoutActor(actorId, gen, startCol) {
     if (visitedActors.has(actorId)) {
       return startCol + 1;
@@ -39,16 +50,23 @@ export function computeFamilyTreeLayout(state, rootId) {
     if (!actor) return startCol + 1;
 
     let currentCol = startCol;
-
-    nodes.set(actor.id, {
-      id: actor.id,
-      type: 'actor',
-      actorId: actor.id,
-      row: gen,
-      col: currentCol,
-      x: currentCol * COL_SPACING + PADDING_X,
-      y: gen * ROW_SPACING + PADDING_Y,
-    });
+    let actorNode = nodes.get(actor.id);
+    if (!actorNode) {
+      currentCol = nextFreeActorCol(gen, currentCol);
+      actorNode = {
+        id: actor.id,
+        type: 'actor',
+        actorId: actor.id,
+        row: gen,
+        col: currentCol,
+        x: currentCol * COL_SPACING + PADDING_X,
+        y: gen * ROW_SPACING + PADDING_Y,
+      };
+      nodes.set(actor.id, actorNode);
+    } else {
+      currentCol = Math.max(currentCol, actorNode.col);
+    }
+    const actorCol = actorNode.col;
 
     const activeUnions = (actor.unions || []).filter(uId => state.$unions[uId]);
 
@@ -66,19 +84,24 @@ export function computeFamilyTreeLayout(state, rootId) {
 
       let spouseCol = currentCol + 1;
       if (partner) {
-        visitedActors.add(partner.id);
-        nodes.set(partner.id, {
-          id: partner.id,
-          type: 'actor',
-          actorId: partner.id,
-          row: gen,
-          col: spouseCol,
-          x: spouseCol * COL_SPACING + PADDING_X,
-          y: gen * ROW_SPACING + PADDING_Y,
-        });
+        const existingPartnerNode = nodes.get(partner.id);
+        if (existingPartnerNode) spouseCol = existingPartnerNode.col;
+        else {
+          spouseCol = nextFreeActorCol(gen, spouseCol);
+          visitedActors.add(partner.id);
+          nodes.set(partner.id, {
+            id: partner.id,
+            type: 'actor',
+            actorId: partner.id,
+            row: gen,
+            col: spouseCol,
+            x: spouseCol * COL_SPACING + PADDING_X,
+            y: gen * ROW_SPACING + PADDING_Y,
+          });
+        }
       }
 
-      const unionCol = (currentCol + spouseCol) / 2;
+      const unionCol = (actorCol + spouseCol) / 2;
       const unionNodeId = union.id;
 
       nodes.set(unionNodeId, {
@@ -91,14 +114,14 @@ export function computeFamilyTreeLayout(state, rootId) {
         y: gen * ROW_SPACING + PADDING_Y + 40,
       });
 
-      let childStartCol = currentCol;
+      let childStartCol = Math.min(actorCol, spouseCol);
 
       for (const childId of (union.children || [])) {
         const nextCol = layoutActor(childId, gen + 1, childStartCol);
         childStartCol = nextCol;
       }
 
-      currentCol = Math.max(spouseCol + 1, childStartCol);
+      currentCol = Math.max(currentCol, spouseCol + 1, childStartCol);
     }
 
     return currentCol;

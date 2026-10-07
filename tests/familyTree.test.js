@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createInitialGameState } from '../src/scripts/stateSchema.js';
+import { createActorDTO, createInitialGameState, createUnionDTO } from '../src/scripts/stateSchema.js';
 import { computeFamilyTreeLayout, getLineageSets } from '../src/scripts/familyTree.js';
 import LineageEngine from '../src/scripts/index.js';
 import { advanceSeason } from '../src/scripts/simulation.js';
@@ -82,5 +82,72 @@ describe('Family Tree Absolute Grid Layout & Path Routing Suite', () => {
         }
       }
     });
+  });
+
+  it('keeps a four-generation tree with multiple unions and adopted children collision-free', () => {
+    const state = LineageEngine.initGameWorld(createInitialGameState('Branching House'));
+    const addActor = (id, parents = [], adoptive = false) => {
+      const actor = createActorDTO({ id, name: id, birthYear: state.$world.year - 30, parents, adoptive, house: state.$world.dynastyName });
+      state.$actors[id] = actor;
+      for (const parentId of parents) state.$actors[parentId]?.children.push(id);
+      return actor;
+    };
+    const addUnion = (id, firstId, secondId, childIds) => {
+      const union = createUnionDTO({ id, partners: [firstId, secondId], children: childIds });
+      state.$unions[id] = union;
+      for (const partnerId of union.partners) {
+        const partner = state.$actors[partnerId];
+        partner.unions.push(id);
+        partner.spouseId = partnerId === firstId ? secondId : firstId;
+      }
+      return union;
+    };
+
+    const root = addActor('tree_root');
+    addActor('tree_partner_a');
+    addActor('tree_partner_b');
+    addActor('tree_child_a', [root.id, 'tree_partner_a']);
+    addActor('tree_adopted', [root.id, 'tree_partner_b'], true);
+    addUnion('tree_union_a', root.id, 'tree_partner_a', ['tree_child_a']);
+    addUnion('tree_union_b', root.id, 'tree_partner_b', ['tree_adopted']);
+    addActor('tree_grandchild', ['tree_child_a', 'tree_mate']);
+    addActor('tree_mate');
+    addUnion('tree_child_union', 'tree_child_a', 'tree_mate', ['tree_grandchild']);
+    addActor('tree_great_grandchild', ['tree_grandchild', 'tree_great_mate']);
+    addActor('tree_great_mate');
+    addUnion('tree_grandchild_union', 'tree_grandchild', 'tree_great_mate', ['tree_great_grandchild']);
+
+    for (let season = 0; season < 160; season += 1) advanceSeason(state);
+
+    const layout = computeFamilyTreeLayout(state, root.id);
+    const actorNodes = layout.nodes.filter(node => node.type === 'actor');
+    const actorIds = actorNodes.map(node => node.actorId);
+    expect(new Set(actorIds).size).toBe(actorIds.length);
+    expect(actorNodes.map(node => node.actorId)).toEqual(expect.arrayContaining([
+      'tree_root', 'tree_child_a', 'tree_adopted', 'tree_grandchild', 'tree_great_grandchild',
+    ]));
+    expect(actorNodes.find(node => node.actorId === root.id)).toMatchObject({ row: 0, col: 0 });
+    expect(state.$actors.tree_adopted.adoptive).toBe(true);
+
+    const nodesByRow = new Map();
+    for (const node of actorNodes) {
+      expect(Number.isFinite(node.x)).toBe(true);
+      expect(Number.isFinite(node.y)).toBe(true);
+      if (!nodesByRow.has(node.row)) nodesByRow.set(node.row, []);
+      nodesByRow.get(node.row).push(node);
+    }
+    for (const rowNodes of nodesByRow.values()) {
+      for (let first = 0; first < rowNodes.length; first += 1) {
+        for (let second = first + 1; second < rowNodes.length; second += 1) {
+          expect(Math.abs(rowNodes[first].x - rowNodes[second].x)).toBeGreaterThanOrEqual(130);
+        }
+      }
+    }
+    const gridPositions = actorNodes.map(node => `${node.row},${node.col}`);
+    expect(new Set(gridPositions).size).toBe(gridPositions.length);
+    for (const connection of layout.connections) {
+      expect(connection.pathD).toMatch(/^M\s+[\d.]+\s+[\d.]+\s+V\s+[\d.]+\s+H\s+[\d.]+(?:\s+V\s+[\d.]+)?$/);
+      expect(connection.pathD).not.toContain('NaN');
+    }
   });
 });
