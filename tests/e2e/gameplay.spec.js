@@ -93,6 +93,37 @@ test('a fresh season links a quest, local encounter, NPC interaction, and time a
   expect(errors).toEqual([]);
 });
 
+test('the in-game quest walkthrough leads through travel, every objective, and a final outcome', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(gameUrl);
+  await page.locator('#btn-quick-start').click();
+  await page.locator('#btn-nav-quests').click();
+
+  const quest = page.locator('.quest-route[aria-label="The Whispering Beast walkthrough"]').locator('xpath=../..');
+  await expect(page.locator('#quest-walkthrough')).toContainText('If you are elsewhere, it travels there');
+  await expect(quest.locator('.quest-route-step').nth(0)).toContainText('Now: Investigate reports at The Crossroads Tavern');
+  await expect(quest.locator('.quest-route-step').nth(1)).toContainText('Next: Track the beast through The Whispering Woods');
+
+  await quest.locator('.quest-adv-btn').click();
+  await expect(quest.locator('.quest-route-step').nth(0)).toContainText('Done: Investigate reports');
+  await expect(quest.locator('.quest-route-step').nth(1)).toContainText('Now: Track the beast');
+  await expect(quest.locator('.quest-adv-btn')).toContainText('Travel to The Whispering Woods');
+
+  await quest.locator('.quest-adv-btn').click();
+  await expect(page.locator('#quest-feedback')).toContainText('Travelled to The Whispering Woods');
+  await quest.locator('.quest-adv-btn').click();
+  await expect(quest.locator('.quest-route-step').nth(1)).toContainText('Done: Track the beast');
+  await expect(quest.locator('.quest-route-step').nth(2)).toContainText('Now: Confront the beast');
+  await expect(quest.locator('.quest-outcome-btn')).toHaveCount(2);
+
+  await quest.locator('.quest-outcome-btn[data-outcome-id="soothe"]').click();
+  await expect(page.locator('#quest-feedback')).toContainText('The Whispering Beast resolved: Soothe the spirit');
+  await expect(quest.locator('.badge').first()).toContainText('Completed');
+  expect(await page.evaluate(() => window.SugarCube.State.variables.$quests.whispering_beast.status)).toBe('completed');
+  expect(errors).toEqual([]);
+});
+
 test('a rune fragment found during the relic quest advances the existing objective', async ({ page }) => {
   await page.goto(gameUrl);
   await page.locator('#btn-quick-start').click();

@@ -88,7 +88,6 @@ export function initiatePregnancy(state, motherId, fatherId, unionId, chance = 1
   const minAge = state.$world.config?.ROMANCE_MIN_AGE ?? 16;
   if (!mother || !father || mother.gender !== 'female' || father.gender !== 'male' || mother.isPregnant || !mother.isAlive || !father.isAlive || getActorAge(mother, state.$world.year) < minAge || getActorAge(father, state.$world.year) < minAge || getActorAge(mother, state.$world.year) > (state.$world.config?.CONCEPTION_MAX_AGE ?? 44)) return false;
   if (unionId && (!union || !union.partners.includes(motherId) || !union.partners.includes(fatherId))) return false;
-  if ((union?.children?.length || 0) >= 5) return false;
   if (nextRandom(state) >= chance) return false;
 
   let conceptionLink = union;
@@ -489,9 +488,10 @@ function processAutonomousUnionsAndOffspring(state, rng) {
   const currentYear = state.$world.year;
   const actors = Object.values(state.$actors || {}).filter(a => a.isAlive);
 
+  // NPC unions are autonomous; the player must never be married without choosing it.
   const unmarriedAdults = actors.filter(a => {
     const age = getActorAge(a, currentYear);
-    return age >= 16 && age <= 50 && !a.spouseId;
+    return a.id !== state.$playerId && age >= 16 && age <= 50 && !a.spouseId;
   });
 
   for (const actor of unmarriedAdults) {
