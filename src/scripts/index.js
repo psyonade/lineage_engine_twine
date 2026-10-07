@@ -1099,6 +1099,16 @@ const LineageEngine = {
       <p style="color:var(--text-muted);">Track ongoing story arcs, rumored relics, and generational goals.</p>
       <div id="quest-feedback" role="status" aria-live="polite" style="min-height:1.2rem; color:var(--accent-gold); font-weight:bold;">${questFeedback}</div>
 
+      <section id="quest-walkthrough" aria-label="How to complete a quest" style="margin-top:1rem; padding:1rem; background:#0f172a; border:1px solid var(--border-subtle); border-radius:8px;">
+        <h3 style="margin:0 0 0.5rem; color:var(--accent-gold);">How to complete a quest</h3>
+        <ol style="margin:0; padding-left:1.35rem; color:var(--text-muted); line-height:1.6;">
+          <li>Read the quest’s <strong>Current Objective</strong> and <strong>Destination</strong>.</li>
+          <li>Click its action button. If you are elsewhere, it travels there; click again to spend 1 AP and complete that objective.</li>
+          <li>Repeat for each step. At the final step, choose an outcome to finish the quest and apply its listed effects.</li>
+          <li>If you run out of AP, use <strong>Coast / Advance Season</strong> in the sidebar, resolve any event, then continue. A displayed free quick-travel option costs no AP.</li>
+        </ol>
+      </section>
+
       <div style="display:flex; flex-direction:column; gap:1rem; margin-top:1.5rem;">
         ${Object.values(quests).map(q => {
           const curStageText = q.stages[q.stage]?.text || 'Quest completed!';
@@ -1117,6 +1127,17 @@ const LineageEngine = {
                 ${q.status === 'completed' && q.outcomeId ? `<p style="color:var(--accent-gold); font-size:0.8rem; margin:0 0 0.5rem;">Outcome: ${q.outcomes?.find(outcome => outcome.id === q.outcomeId)?.label || q.outcomeId}</p>` : ''}
                 ${q.handoffs?.length ? `<p style="color:var(--accent-gold); font-size:0.8rem; margin:0 0 0.5rem;">Carried by ${q.handoffs.length} heir${q.handoffs.length === 1 ? '' : 's'} since ${state.$actors[q.originatorId]?.name || 'an earlier generation'}.</p>` : ''}
                 ${q.pressure ? `<p style="color:#fca5a5; font-size:0.8rem; margin:0 0 0.5rem;">Pressure: ${q.pressure}/${state.$world.config?.QUEST_PRESSURE_MAX ?? 5} · Unresolved complications may reduce the final reward.</p>` : ''}
+                <ol class="quest-route" aria-label="${q.title} walkthrough" style="margin:0.65rem 0; padding:0 0 0 1.4rem; color:var(--text-muted); font-size:0.82rem; line-height:1.55;">
+                  ${q.stages.map((step, index) => {
+                    const stepState = q.status === 'completed' || index < q.stage ? 'done' : index === q.stage ? 'current' : 'upcoming';
+                    const marker = stepState === 'done' ? 'Done' : stepState === 'current' ? 'Now' : 'Next';
+                    const stepText = q.id === 'relic_bloodline' && index === 1 && state.$world.flags?.aetherFragmentFound
+                      ? 'Use the rune fragment to locate the sealed vault.'
+                      : step.text;
+                    return `<li class="quest-route-step quest-route-${stepState}" data-stage="${index}" style="padding:0.12rem 0; color:${stepState === 'current' ? 'var(--text-primary)' : 'var(--text-muted)'};"><strong style="color:${stepState === 'current' ? 'var(--accent-gold)' : 'inherit'};">${marker}:</strong> ${stepText} <span>— ${LOCATIONS[step.location]?.name || step.location}</span></li>`;
+                  }).join('')}
+                  ${q.outcomes?.length ? `<li class="quest-route-step quest-route-${q.status === 'completed' ? 'done' : q.stage === q.maxStage - 1 ? 'current' : 'upcoming'}"><strong>Finish:</strong> Choose an outcome${q.stage === q.maxStage - 1 && q.status !== 'completed' ? ` at ${LOCATIONS[q.stages[q.stage]?.location]?.name || 'the destination'}` : ''} (1 AP).</li>` : ''}
+                </ol>
                 <div style="background:#0f172a; padding:0.6rem; border-radius:6px; border:1px solid var(--border-subtle); font-size:0.85rem; color:#fff;">
                   <strong>Current Objective:</strong> ${q.id === 'relic_bloodline' && q.stage === 1 && state.$world.flags?.aetherFragmentFound ? 'Use the rune fragment to locate the sealed vault.' : curStageText}<br>
                   <small style="color:var(--text-muted);">Destination: ${LOCATIONS[q.stages[q.stage]?.location]?.name || 'Complete'} · ${isAtLocation ? 'Progress costs 1 AP' : `Travel costs ${travelCostLabel}`}</small>
@@ -1326,12 +1347,11 @@ const LineageEngine = {
     const isChildOrYouth = age < 16;
     const isFemaleMalePair = new Set([player.gender, target.gender]).has('female') && new Set([player.gender, target.gender]).has('male');
     const possibleMother = player.gender === 'female' ? player : target.gender === 'female' ? target : null;
-    const existingParentage = player.unions.map(id => state.$unions[id]).find(union => union?.partners.includes(target.id));
     const conceptionChance = state.$world.config?.CONCEPTION_CHANCE ?? 0.45;
     const conceptionMaxAge = state.$world.config?.CONCEPTION_MAX_AGE ?? 44;
     const conceptionIsEligible = isFemaleMalePair && romanceAllowed && possibleMother &&
       getActorAge(possibleMother, state.$world.year) <= conceptionMaxAge &&
-      !possibleMother.isPregnant && (existingParentage?.children?.length || 0) < 5;
+      !possibleMother.isPregnant;
     const conceptionUnavailableReason = !isFemaleMalePair
       ? 'Conception requires one female and one male character.'
       : !romanceAllowed
@@ -1340,14 +1360,12 @@ const LineageEngine = {
           ? 'The eligible female character is already pregnant.'
           : possibleMother && getActorAge(possibleMother, state.$world.year) > conceptionMaxAge
             ? `The eligible female character is over the conception age limit of ${conceptionMaxAge}.`
-            : (existingParentage?.children?.length || 0) >= 5
-              ? 'This pair already has the maximum of five children.'
-              : '';
+          : '';
     const conceptionChanceText = conceptionIsEligible
       ? `${Math.round(conceptionChance * 100)}% if the approach is reciprocated`
-      : isFemaleMalePair
-        ? `0% currently — conception requires an eligible, non-pregnant female aged ${state.$world.config?.ROMANCE_MIN_AGE ?? 16}–${conceptionMaxAge}`
-        : '0% for this pairing — conception requires one female and one male character';
+      : !isFemaleMalePair
+        ? `0% for this pairing. ${conceptionUnavailableReason}`
+        : `0% currently: ${conceptionUnavailableReason}`;
     const greeting = getDialogueGreeting(target, player, state.$actors, state.$houses, state.$world.config, state.$world.flags);
     let selectedIntimacyApproach = 'sincere';
 
@@ -1440,7 +1458,7 @@ const LineageEngine = {
                 <button class="lineage-btn" id="act-adopt" ${actedList.includes('adopt') ? 'disabled title="You have already attempted adoption this season."' : ''}>Adopt a Child (1 AP)</button>
               ` : ''}
             </div>
-            <p id="intimacy-conception-chance" style="margin:0.5rem 0; color:var(--text-muted); font-size:0.85rem;">Conception chance: <strong>${conceptionChanceText}</strong>. The roll uses the world’s seeded random stream.${isSpouse && !conceptionIsEligible ? ` ${conceptionUnavailableReason}` : ''}</p>
+            <p id="intimacy-conception-chance" style="margin:0.5rem 0; color:var(--text-muted); font-size:0.85rem;">Conception chance: <strong>${conceptionChanceText}</strong>. The conception attempt uses the seeded random stream.</p>
           </div>
         </div>
       `;

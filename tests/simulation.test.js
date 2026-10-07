@@ -150,6 +150,7 @@ describe('Living World & Generational Simulation Suite', () => {
     expect(father.children).toContain(child.id);
   });
 
+
   it('uses the configured conception probability for both successful and failed rolls', () => {
     const attempt = seed => {
       const state = LineageEngine.initGameWorld(createInitialGameState('Chance Test'));
@@ -266,6 +267,22 @@ describe('Living World & Generational Simulation Suite', () => {
     expect(player.isPregnant).toBe(false);
     expect(player.pregnancy).toBeNull();
     expect(union.children).toEqual([]);
+  });
+
+  it('never autonomously marries the player character', () => {
+    const state = createInitialGameState('Player Agency');
+    const player = createActorDTO({ id: 'player', gender: 'male', birthYear: state.$world.year - 30, house: 'Player House', tier: 'player-connected' });
+    const npc = createActorDTO({ id: 'npc', gender: 'female', birthYear: state.$world.year - 28, house: 'Guest House', tier: 'important' });
+    state.$playerId = player.id;
+    state.$actors = { [player.id]: player, [npc.id]: npc };
+    state.$world.config.AUTO_UNION_CHANCE = 1;
+    state.$world.config.COMPAT_MIN = 0;
+
+    advanceSeason(state, () => 0);
+
+    expect(player.spouseId).toBeNull();
+    expect(npc.spouseId).toBeNull();
+    expect(Object.values(state.$unions)).toHaveLength(0);
   });
 
   it('Short-Lived mortality starts at age 40 while ordinary mortality does not', () => {
